@@ -1,0 +1,75 @@
+#!/bin/bash
+
+set -e
+
+echo "[INFO] Installing HAProxy and BIND9..."
+apt install -y haproxy bind9 bind9utils bind9-doc
+
+cat <<EOF > /etc/haproxy/haproxy.cfg
+frontend kubernetes-frontend
+    bind *:6443
+    mode tcp
+    default_backend kubernetes-backend
+
+backend kubernetes-backend
+    mode tcp
+    balance roundrobin
+    server master1 10.48.222.2:6443 check fall 3 rise 2
+    server master2 10.48.222.3:6443 check fall 3 rise 2
+    server master3 10.48.222.4:6443 check fall 3 rise 2
+EOF
+
+systemctl restart haproxy
+systemctl enable haproxy
+
+echo "[INFO] Configuring BIND DNS..."
+
+cat <<EOF > /etc/bind/named.conf.options
+options {
+    directory "/var/cache/bind";
+    recursion yes;
+    allow-query { any; };
+    forwarders {
+        8.8.8.8;
+        8.8.4.4;
+    };
+    dnssec-validation auto;
+    listen-on { any; };
+};
+EOF
+
+cat <<EOF > /etc/bind/named.conf.local
+zone "local" {
+    type master;
+    file "/etc/bind/db.local";
+};
+EOF
+
+cat <<EOF > /etc/bind/db.local
+\$TTL    604800
+@       IN      SOA     bastion.local. root.local. (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      bastion.local.
+
+bastion IN A 10.48.216.132
+master1 IN A 10.48.222.2
+master2 IN A 10.48.222.3
+master3 IN A 10.48.222.4
+worker1 IN A 10.48.222.5
+worker2 IN A 10.48.222.6
+worker3 IN A 10.48.222.7
+worker4 IN A 10.48.222.8
+worker5 IN A 10.48.222.9
+EOF
+
+named-checkconf
+named-checkzone local /etc/bind/db.local
+systemctl restart bind9
+systemctl enable bind9
+
+echo "[INFO] Bastion setup complete."

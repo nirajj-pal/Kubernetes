@@ -1,0 +1,17 @@
+#!/bin/bash
+
+NODES=(
+  10.48.222.2
+  10.48.222.3
+  10.48.222.4
+  10.48.222.5
+  10.48.222.6
+  10.48.222.7
+  10.48.222.8
+  10.48.222.9
+)
+
+for ip in "${NODES[@]}"; do
+  echo "[INFO] Copying SSH key to root@$ip"
+  ssh-copy-id -i /root/.ssh/id_rsa.pub root@$ip
+done

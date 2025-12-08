@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -e
+
+CONTROL_PLANE_ENDPOINT="10.48.216.132"
+
+echo "[INFO] Initializing Kubernetes control plane..."
+kubeadm init \
+    --control-plane-endpoint="${CONTROL_PLANE_ENDPOINT}:6443" \
+    --upload-certs \
+    --pod-network-cidr=10.244.0.0/16 | tee /root/kubeadm-init.out
+
+mkdir -p $HOME/.kube
+cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+chown $(id -u):$(id -g) $HOME/.kube/config
+
+echo "[INFO] Installing flannel..CNI..."
+kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml

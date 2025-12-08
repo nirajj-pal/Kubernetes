@@ -1,0 +1,60 @@
+cat /etc/haproxy/haproxy.cfg
+global
+    log /dev/log local0
+    maxconn 200
+
+defaults
+    log         global
+    option      tcplog
+    timeout connect 5000ms
+    timeout client  50000ms
+    timeout server  50000ms
+
+frontend kubernetes-frontend
+    bind *:6443
+    mode tcp
+    default_backend kubernetes-backend
+
+backend kubernetes-backend
+    mode tcp
+    balance roundrobin
+    server master1 10.48.222.2:6443 check fall 3 rise 2
+    server master2 10.48.222.3:6443 check fall 3 rise 2
+    server master3 10.48.222.4:6443 check fall 3 rise 2
+
+# =======================
+# MINIO CONSOLE (HTTPS)
+# Publishes: https://sesdconsole.esdsconnect.com:8443/
+# Backend:   http://<MINIO_IP>:9001
+# =======================
+frontend fe_minio_console_https
+    mode http
+    option httplog
+    bind *:8443 ssl crt /etc/haproxy/certs/sesdconsole.esdsconnect.com.pem alpn h2,http/1.1
+
+    # Tell MinIO it's behind HTTPS/this host
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-Host  %[req.hdr(host)]
+    http-request set-header X-Forwarded-For   %[src]
+
+    default_backend be_minio_console
+
+backend be_minio_console
+    mode http
+    balance roundrobin
+    # Console (Web UI) port on the MinIO host
+    server minio_console 10.48.222.5:9001 check
+
+frontend fe_minio_s3_https
+    mode http
+    option httplog
+    bind *:9443 ssl crt /etc/haproxy/certs/sesdconsole.esdsconnect.com.pem alpn h2,http/1.1
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-Host  %[req.hdr(host)]
+    http-request set-header X-Forwarded-For   %[src]
+    default_backend be_minio_s3
+
+backend be_minio_s3
+    mode http
+    balance roundrobin
+    server minio_s3 10.48.222.5:9000 check
