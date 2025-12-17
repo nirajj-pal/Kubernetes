@@ -1,0 +1,197 @@
+---
+- name: Prepare Kubernetes nodes (pre-installation)
+  hosts: kube_nodes
+  become: yes
+  vars:
+    k8s_version: "v1.30"
+    container_runtime: "containerd"
+
+  tasks:
+    - name: Disable swap
+      ansible.posix.mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      loop:
+        - "none"
+        - "swap"
+
+    - name: Load kernel modules
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+        state: present
+        persistent: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure sysctl parameters
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+      loop:
+        - { name: net.bridge.bridge-nf-call-iptables, value: 1 }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: 1 }
+        - { name: net.ipv4.ip_forward,            value: 1 }
+
+    - name: Update apt and install prerequisites
+      ansible.builtin.apt:
+        name:
+          - curl
+          - gnupg2
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - lsb-release
+        update_cache: yes
+
+    ###########################################################################
+    # APT keyrings / repos: docker + kubernetes (idempotent)
+    ###########################################################################
+
+    - name: Ensure /etc/apt/keyrings exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      tags: apt-keys
+
+    - name: Add Docker GPG key for containerd
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker-apt-keyring.asc
+        mode: '0644'
+        force: yes
+      tags: apt-keys
+
+    - name: Ensure no duplicate docker apt source (remove archive_uri one if exists)
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/archive_uri-https_download_docker_com_linux_ubuntu-{{ ansible_distribution_release }}.list"
+        state: absent
+      tags: fix-apt-duplicates
+
+    - name: Add Docker APT repo
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker-apt-keyring.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+        update_cache: yes
+
+    - name: Download Kubernetes Release.key (temporary)
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/Release.key"
+        dest: /tmp/k8s_release.key
+        mode: '0644'
+        force: yes
+      tags: apt-keys
+
+    - name: Convert Kubernetes Release.key -> /etc/apt/keyrings/kubernetes-apt-keyring.gpg (dearmor)
+      ansible.builtin.shell: >
+        gpg --dearmor --yes < /tmp/k8s_release.key > /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      tags: apt-keys
+
+    - name: Ensure gnupg is installed
+      ansible.builtin.apt:
+        name: gnupg
+        state: present
+        update_cache: yes
+      tags: apt-keys
+
+    - name: Ensure kubernetes keyring permissions
+      ansible.builtin.file:
+        path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['os_family'] == 'Debian'
+      tags: apt-keys
+
+    - name: Remove temporary k8s release key file
+      ansible.builtin.file:
+        path: /tmp/k8s_release.key
+        state: absent
+      tags: apt-keys
+
+    - name: Add Kubernetes apt repository (signed-by keyring)
+      ansible.builtin.apt_repository:
+        filename: kubernetes
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/ /"
+        state: present
+        update_cache: yes
+      tags: kubernetes
+
+    - name: Ensure apt cache is up-to-date
+      ansible.builtin.apt:
+        update_cache: yes
+      tags: apt
+
+    ###########################################################################
+    # Container runtime installation & configuration
+    ###########################################################################
+
+    - name: Install containerd
+      ansible.builtin.apt:
+        name: containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Configure containerd
+      ansible.builtin.shell: >
+        mkdir -p /etc/containerd &&
+        containerd config default > /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+      notify: Restart containerd
+
+    - name: Use systemd cgroup driver in containerd
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^\s*SystemdCgroup ='
+        line: '            SystemdCgroup = true'
+        backrefs: yes
+      notify: Restart containerd
+
+    - name: Enable containerd service
+      ansible.builtin.systemd:
+        name: containerd
+        enabled: yes
+        state: started
+
+    ###########################################################################
+    # Kubernetes packages
+    ###########################################################################
+
+    - name: Install kubelet, kubeadm, kubectl (latest from repo)
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Hold kubelet, kubeadm, kubectl at current installed version
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Enable kubelet service
+      ansible.builtin.systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.service:
+        name: containerd
+        state: restarted
+

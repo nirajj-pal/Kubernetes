@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dnsutils
+spec:
+  selector:
+    matchLabels:
+      app: dnsutils
+  template:
+    metadata:
+      labels:
+        app: dnsutils
+    spec:
+      # Make sure it runs on all nodes, including control-plane if you want
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+      nodeSelector:
+        kubernetes.io/os: linux
+
+      containers:
+        - name: dnsutils
+          # Any image with dig/nslookup/curl is fine; this one is commonly used for DNS debug
+          image: gcr.io/kubernetes-e2e-test-images/dnsutils:1.3
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "3600"]
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          stdin: true
+          tty: true
+
+      restartPolicy: Always
+      dnsPolicy: ClusterFirst

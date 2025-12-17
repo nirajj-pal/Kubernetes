@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# 01-node-bootstrap.sh
+# Run as root on ALL nodes (masters + workers)
+
+set -euo pipefail
+
+### SETTINGS ############################################################
+K8S_MAJOR_MINOR="v1.30"                    # Kubernetes series
+K8S_REPO_URL="https://pkgs.k8s.io/core:/stable:/${K8S_MAJOR_MINOR}/deb/"
+K8S_RELEASE_KEY_URL="${K8S_REPO_URL}Release.key"
+
+CNI_VERSION="v1.4.1"                       # CNI plugins version
+CNI_DOWNLOAD_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz"
+
+CONTAINERD_PACKAGE="containerd.io"
+#########################################################################
+
+echo "[INFO] Disabling swap..."
+swapoff -a || true
+sed -i.bak '/ swap / s/^\(.*\)$/#\1/' /etc/fstab || true
+
+echo "[INFO] Loading kernel modules..."
+cat <<EOF >/etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+modprobe overlay || true
+modprobe br_netfilter || true
+
+echo "[INFO] Setting sysctl params..."
+cat <<EOF >/etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+EOF
+sysctl --system
+
+echo "[INFO] Installing base dependencies..."
+apt-get update -y
+apt-get install -y \
+  curl \
+  gnupg2 \
+  software-properties-common \
+  apt-transport-https \
+  ca-certificates \
+  lsb-release
+
+#########################################################################
+# containerd
+#########################################################################
+if ! command -v containerd >/dev/null 2>&1; then
+  echo "[INFO] Installing containerd..."
+
+  # Docker apt repo for containerd.io
+  if [ ! -f /etc/apt/trusted.gpg.d/docker.gpg ]; then
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
+    chmod 644 /etc/apt/trusted.gpg.d/docker.gpg
+  fi
+
+  add-apt-repository -y \
+    "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+
+  apt-get update -y
+  apt-get install -y ${CONTAINERD_PACKAGE}
+else
+  echo "[INFO] containerd already installed, skipping..."
+fi
+
+echo "[INFO] Configuring containerd (SystemdCgroup=true)..."
+mkdir -p /etc/containerd
+containerd config default >/etc/containerd/config.toml
+
+# Switch to systemd cgroup
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+systemctl daemon-reload
+systemctl enable --now containerd
+
+# crictl config (nice to have)
+if [ ! -f /etc/crictl.yaml ]; then
+  cat <<EOF >/etc/crictl.yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+timeout: 10
+debug: false
+pull-image-on-create: false
+EOF
+fi
+
+#########################################################################
+# CNI plugins (loopback, bridge, host-local, etc.)
+#########################################################################
+echo "[INFO] Ensuring CNI plugins are present in /opt/cni/bin..."
+mkdir -p /opt/cni/bin
+
+if [ ! -x /opt/cni/bin/loopback ]; then
+  echo "[INFO] CNI plugins not found, downloading ${CNI_VERSION}..."
+  TMP_DIR=$(mktemp -d)
+  pushd "${TMP_DIR}" >/dev/null
+
+  curl -L "${CNI_DOWNLOAD_URL}" -o cni-plugins.tgz
+  tar -xvf cni-plugins.tgz -C /opt/cni/bin
+
+  popd >/dev/null
+  rm -rf "${TMP_DIR}"
+else
+  echo "[INFO] CNI plugins already present, skipping download."
+fi
+
+#########################################################################
+# Kubernetes packages: kubeadm, kubelet, kubectl
+#########################################################################
+echo "[INFO] Setting up Kubernetes apt repo for ${K8S_MAJOR_MINOR}..."
+
+mkdir -p /etc/apt/keyrings
+chmod 755 /etc/apt/keyrings
+
+if [ ! -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg ]; then
+  curl -fsSL "${K8S_RELEASE_KEY_URL}" \
+    | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+fi
+
+cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
+deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] ${K8S_REPO_URL} /
+EOF
+
+apt-get update -y
+
+echo "[INFO] Installing kubelet, kubeadm, kubectl..."
+apt-get install -y kubelet kubeadm kubectl
+
+echo "[INFO] Holding Kubernetes packages at current version..."
+apt-mark hold kubelet kubeadm kubectl
+
+systemctl enable kubelet
+systemctl restart kubelet
+
+echo "[INFO] Node bootstrap complete."
