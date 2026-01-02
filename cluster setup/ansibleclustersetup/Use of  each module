@@ -1,0 +1,15 @@
+Module        	Kubernetes relevance
+xt_addrtype   	Firewall rules matching traffic type
+xt_conntrack  	Connection tracking for stateful rules
+xt_comment	    Commenting iptables rules
+xt_nat	NAT     support (pod-to-external)
+xt_REDIRECT    	Redirect service traffic to pods
+nft_reject_ipv4	Reject IPv4 packets in nftables
+nft_reject	    Reject packets in nftables (IPv4 + IPv6)
+nf_tables      	nftables kernel support
+nf_nat         	NAT for connection tracking
+nf_conntrack	  Tracks connections, essential for kube-proxy
+iptable_filter 	Default iptables filter table
+iptable_nat	    Default iptables NAT table
+overlay        	Overlay network for pods
+br_netfilter	  Applies iptables rules to bridged traffic
