@@ -1,0 +1,135 @@
+apiVersion: v1
+data:
+  send_alert_email.py: |
+    import os
+    import smtplib
+    import ssl
+    from email.message import EmailMessage
+    from datetime import datetime, timezone
+    import requests
+
+    ES_URL = os.environ["ES_URL"].rstrip("/")
+    ES_USER = os.environ["ES_USER"]
+    ES_PASS = os.environ["ES_PASS"]
+    ES_INDEX = os.environ.get("ES_INDEX", "alerts-hg-tech-notifications")
+    LOOKBACK_MINUTES = int(os.environ.get("LOOKBACK_MINUTES", "10"))
+    CLUSTER = os.environ.get("CLUSTER", "hg-tech")
+
+    SMTP_HOST = os.environ["SMTP_HOST"]
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USER = os.environ["SMTP_USER"]
+    SMTP_PASS = os.environ["SMTP_PASS"]
+    MAIL_FROM = os.environ["MAIL_FROM"]
+    MAIL_TO = [x.strip() for x in os.environ["MAIL_TO"].split(",") if x.strip()]
+
+    ES_CA_CERT = os.environ.get("ES_CA_CERT", "/etc/es-certs/ca.crt")
+    VERIFY = ES_CA_CERT if os.path.exists(ES_CA_CERT) else False
+
+    def fetch_recent_alerts():
+      url = f"{ES_URL}/{ES_INDEX}/_search"
+      headers = {"Content-Type": "application/json"}
+      query = {
+        "size": 1000,
+        "sort": [{"@timestamp": "asc"}],
+        "_source": True,
+        "query": {
+          "bool": {
+            "filter": [
+              {"range": {"@timestamp": {"gte": f"now-{LOOKBACK_MINUTES}m"}}},
+              {"term": {"cluster.keyword": CLUSTER}}
+            ]
+          }
+        }
+      }
+      r = requests.post(url, auth=(ES_USER, ES_PASS), headers=headers, json=query, verify=VERIFY, timeout=30)
+      r.raise_for_status()
+      hits = r.json().get("hits", {}).get("hits", [])
+      return [h["_source"] for h in hits]
+
+    def format_section(title, items):
+      lines = []
+      lines.append("=" * 80)
+      lines.append(title)
+      lines.append("=" * 80)
+
+      if not items:
+        lines.append("None")
+        lines.append("")
+        return "\n".join(lines)
+
+      for it in items:
+        # POD HEALTH: prefer pod fields if present
+        if it.get("pod"):
+          lines.append(f"- Pod      : {it.get('pod','-')}")
+          lines.append(f"  Namespace: {it.get('namespace','-')}")
+          lines.append(f"  Phase    : {it.get('phase','-')}")
+          lines.append(f"  Node     : {it.get('node','-')}")
+          lines.append(f"  Event TS : {it.get('event_ts','-')}")
+          lines.append(f"  Rule     : {it.get('rule_name','-')}")
+          if it.get("rule_url"):
+            lines.append(f"  Rule URL : {it.get('rule_url')}")
+          lines.append("")
+          continue
+
+        # Generic (CPU/MEM/READY) format
+        lines.append(f"- Instance : {it.get('instance','-')}")
+        lines.append(f"  Status   : {it.get('status','-')}")
+        lines.append(f"  Reason   : {it.get('reason','-')}")
+        lines.append(f"  Start    : {it.get('start','-')}")
+        if it.get("end"):
+          lines.append(f"  End      : {it.get('end','-')}")
+        if it.get("rule_url"):
+          lines.append(f"  Rule URL : {it.get('rule_url')}")
+        lines.append("")
+
+      return "\n".join(lines)
+
+    def build_email(alerts):
+      cats = {"node_cpu": [], "node_memory": [], "node_ready": [], "pod_health": []}
+      for a in alerts:
+        c = a.get("category", "other")
+        if c in cats:
+          cats[c].append(a)
+
+      now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+      subject = f"[{CLUSTER}][K8S] Alert Summary (last {LOOKBACK_MINUTES}m) | {now}"
+
+      body_lines = []
+      body_lines.append(f"Cluster: {CLUSTER}")
+      body_lines.append(f"Time: {now}")
+      body_lines.append(f"Lookback: last {LOOKBACK_MINUTES} minutes")
+      body_lines.append("")
+      body_lines.append(format_section("NODE CPU > 80% (events)", cats["node_cpu"]))
+      body_lines.append(format_section("NODE MEMORY > 80% (events)", cats["node_memory"]))
+      body_lines.append(format_section("NODE READY/NOTREADY (events)", cats["node_ready"]))
+      body_lines.append(format_section("POD HEALTH (Not Running) (events)", cats["pod_health"]))
+
+      msg = EmailMessage()
+      msg["From"] = MAIL_FROM
+      msg["To"] = ", ".join(MAIL_TO)
+      msg["Subject"] = subject
+      msg.set_content("\n".join(body_lines))
+      return msg
+
+    def send_email(msg):
+      context = ssl.create_default_context()
+      with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+        server.ehlo()
+        server.starttls(context=context)
+        server.ehlo()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+
+    def main():
+      alerts = fetch_recent_alerts()
+      if not alerts:
+        return
+      msg = build_email(alerts)
+      send_email(msg)
+
+    if __name__ == "__main__":
+      main()
+kind: ConfigMap
+metadata:
+  name: alert-mailer-script
+  namespace: elk

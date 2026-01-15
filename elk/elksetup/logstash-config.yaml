@@ -1,0 +1,91 @@
+apiVersion: v1
+data:
+  logstash.conf: |
+    input {
+      beats { port => 5044 }
+    }
+
+    filter {
+      # --------------------------------------------
+      # FORCE namespace to come from orchestrator.cluster.name (hg-tech)
+      # (Ignore [client] so it never becomes "clientA")
+      # --------------------------------------------
+      if [orchestrator][cluster][name] and [orchestrator][cluster][name] != "" {
+        mutate { add_field => { "[@metadata][ds_namespace]" => "%{[orchestrator][cluster][name]}" } }
+      } else if [cluster][name] and [cluster][name] != "" {
+        mutate { add_field => { "[@metadata][ds_namespace]" => "%{[cluster][name]}" } }
+      } else {
+        mutate { add_field => { "[@metadata][ds_namespace]" => "default" } }
+      }
+
+      # Keep namespace safe for data stream naming
+      mutate {
+        lowercase => ["[@metadata][ds_namespace]"]
+        gsub      => ["[@metadata][ds_namespace]", "[^a-z0-9_-]", "-"]
+      }
+
+      # --------------------------------------------
+      # METRICS (metricbeat)
+      # --------------------------------------------
+      if [@metadata][beat] == "metricbeat" {
+        mutate {
+          add_field => {
+            "[data_stream][type]"      => "metrics"
+            "[data_stream][dataset]"   => "kubernetes"
+            "[data_stream][namespace]" => "%{[@metadata][ds_namespace]}"
+          }
+        }
+      }
+      # --------------------------------------------
+      # LOGS (filebeat)
+      # --------------------------------------------
+      else {
+        if [kubernetes] {
+          mutate {
+            add_field => { "[@metadata][ds_dataset]" => "kubernetes.container" }
+          }
+
+          # Prevent mapping explosion / Kibana slowness
+          mutate {
+            remove_field => [
+              "[kubernetes][labels]",
+              "[kubernetes][annotations]"
+            ]
+          }
+        } else if [log][file][path] =~ "^/var/log/" {
+          mutate { add_field => { "[@metadata][ds_dataset]" => "system.syslog" } }
+        } else {
+          drop { }
+        }
+
+        mutate {
+          add_field => {
+            "[data_stream][type]"      => "logs"
+            "[data_stream][dataset]"   => "%{[@metadata][ds_dataset]}"
+            "[data_stream][namespace]" => "%{[@metadata][ds_namespace]}"
+          }
+        }
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts => ["https://elasticsearch-master:9200"]
+        user => "${ELASTIC_USERNAME}"
+        password => "${ELASTIC_PASSWORD}"
+        ssl => true
+        cacert => "/usr/share/logstash/config/certs/ca.crt"
+
+        ecs_compatibility => "v8"
+        data_stream => true
+      }
+
+      # stdout { codec => rubydebug }  # enable only for debugging
+    }
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    log.level: info
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: elk

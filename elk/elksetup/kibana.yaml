@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: elk
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: kibana
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2026-01-09T13:41:46+05:30"
+      creationTimestamp: null
+      labels:
+        app: kibana
+    spec:
+      containers:
+      - env:
+        - name: ELASTICSEARCH_HOSTS
+          value: https://elasticsearch-master:9200
+        - name: ELASTICSEARCH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: kibana-system-credentials
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: kibana-system-credentials
+        - name: ELASTICSEARCH_SSL_VERIFICATIONMODE
+          value: certificate
+        - name: ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES
+          value: /usr/share/kibana/config/certs/ca.crt
+        - name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+          valueFrom:
+            secretKeyRef:
+              key: encryptionKey
+              name: kibana-encryption-key
+        - name: SERVER_PUBLICBASEURL
+          value: https://elk.enlightcloud.com/
+        image: docker.elastic.co/kibana/kibana:8.5.1
+        imagePullPolicy: IfNotPresent
+        name: kibana
+        ports:
+        - containerPort: 5601
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: "1"
+            memory: 2Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /usr/share/kibana/config/certs
+          name: elastic-ca
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: elastic-ca
+        secret:
+          defaultMode: 420
+          secretName: elastic-cert
