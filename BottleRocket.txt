@@ -1,0 +1,83 @@
+cd /drives/d/bottleRocket
+
+# Download yq Windows binary (portable)
+curl -L -o yq.exe https://github.com/mikefarah/yq/releases/download/v4.50.1/yq_windows_amd64.exe
+chmod +x yq.exe
+./yq.exe --version
+
+
+cd /drives/d/bottleRocket
+
+# Download latest EKS Anywhere release manifest
+curl -sL https://anywhere-assets.eks.amazonaws.com/releases/eks-a/manifest.yaml -o manifest.yaml
+
+EKSA_RELEASE_VERSION=$(~/bin/yq.exe -r '.spec.latestVersion' manifest.yaml)
+BUNDLE_MANIFEST_URL=$(~/bin/yq.exe -r ".spec.releases[] | select(.version == \"${EKSA_RELEASE_VERSION}\").bundleManifestUrl" manifest.yaml)
+
+curl -sL "${BUNDLE_MANIFEST_URL}" -o bundles.yaml
+
+KUBEVERSION="1.30"
+OVA_URL=$(~/bin/yq.exe -r ".spec.versionsBundles[] | select(.kubeVersion == \"${KUBEVERSION}\").eksD.ova.bottlerocket.uri" bundles.yaml)
+
+echo "${OVA_URL}"
+
+curl -L -o "bottlerocket-vmware-k8s-1.30-x86_64.ova" "${OVA_URL}"
+ls -lh *.ova
+
+  16/01/2026   15:10.06   /drives/d/bottleRocket  ls -lrt
+total 168928
+-rw-rw-rw- 1 Niraj.Pal Domain Users      13632 2026-01-02 14:02 root.json
+-rwxrwxrwx 1 Niraj.Pal Domain Users   14046208 2026-01-02 14:15 yq.exe
+-rw-rw-rw- 1 Niraj.Pal Domain Users     324760 2026-01-02 14:20 manifest.yaml
+-rw-rw-rw- 1 Niraj.Pal Domain Users     274414 2026-01-02 14:20 bundles.yaml
+-rw-rw-rw- 1 Niraj.Pal Domain Users  331294720 2026-01-02 14:21 bottlerocket-vmware-k8s-1.30-x86_64.ova
+
+
+Gather cluster details for kubeadm.
+On the master node, run the following commands to capture your API server address, DNS IP, bootstrap token and cluster certificate
+
+export API_SERVER=$(kubectl config view -o jsonpath='{.clusters[0].cluster.server}')
+export CLUSTER_DNS_IP=$(kubectl -n kube-system get svc -l k8s-app=kube-dns \
+  -o=jsonpath='{.items[0].spec.clusterIP}')
+export BOOTSTRAP_TOKEN=$(kubeadm token create)
+export CLUSTER_CERTIFICATE=$(kubectl config view --raw \
+  -o=jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
+
+Create a user‑data.toml file on your workstation.
+This file tells Bottlerocket’s kubelet how to join your cluster. It should look like this
+
+[settings.kubernetes]
+api-server = "https://172.16.141.21:6443"       # replace with your API_SERVER
+cluster-dns-ip = "10.96.0.10"                   # replace with your CLUSTER_DNS_IP
+bootstrap-token = "abcdef.0123456789abcdef"     # replace with your BOOTSTRAP_TOKEN
+cluster-certificate = "<base64 CA cert>"        # replace with your CLUSTER_CERTIFICATE
+
+
+Base64‑encode the user data. Use a simple command on your workstation:
+
+base64 -w0 user-data.toml > user-data.b64
+
+Open user-data.b64 in a text editor and copy the long single‑line string
+
+Inject the user data into the new VM via vSphere GUI.
+
+In vSphere Client, right‑click your new Bottlerocket VM (still powered off) and choose Edit Settings.
+
+Go to the VM Options tab → Advanced → Configuration Parameters and click Edit Configuration (or Add Configuration Parameters).
+
+Switch to the Hosts & Clusters view. In the vSphere Client, click the Menu dropdown in the upper‑left corner and choose Hosts and Clusters (or VMs and Templates if that’s where you normally deploy VMs).
+
+In the inventory tree on the left, select the datacenter, cluster or host where you want the new VM to run.
+
+Right‑click the selected object and look for Deploy OVF Template… or Deploy OVF/OVA Template in the context menu. This option lets you upload an OVA/OVF file and create a VM. If you still don’t see it, your vSphere account may not have the necessary privilege; you’ll need to ask your VMware administrator to grant you the “Deploy OVF template” permission or perform the deployment on your behalf.
+
+When the wizard opens, choose Local file and browse to the Bottlerocket OVA you downloaded. Assign a name, select the appropriate cluster/host, datastore and network, then finish the wizard. vSphere will create a powered‑off VM from the OVA. At that point you can set the guestinfo.userdata values and power it on as described earlier.
+
+Add two new key‑value pairs:
+
+Key: guestinfo.userdata — Value: paste the entire Base64 string from user-data.b64.
+
+Key: guestinfo.userdata.encoding — Value: base64.
+
+Save the changes.
