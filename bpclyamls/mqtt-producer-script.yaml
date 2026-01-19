@@ -1,0 +1,21 @@
+apiVersion: v1
+data:
+  producer.py: "import time\nimport json\nimport random\nfrom datetime import datetime,
+    timedelta, timezone\nimport paho.mqtt.client as mqtt\n\nMQTT_BROKER = \"emqx.emqx.svc.cluster.local\"\nMQTT_PORT
+    = 1883\nMQTT_TOPIC = \"test/topic\"\nMQTT_USER = \"admin\"\nMQTT_PASSWORD = \"NewStrongPass!\"\n\nclient
+    = mqtt.Client(client_id=\"mqtt_producer_script\")\nclient.username_pw_set(MQTT_USER,
+    MQTT_PASSWORD)\n\ndef publish_message():\n    while True:\n        IST = timezone(timedelta(hours=5,
+    minutes=30))\n        event_time = datetime.now(IST).isoformat()\n        payload
+    = {\n            \"device_id\": f\"sensor-{random.randint(1, 10)}\",\n            \"temperature\":
+    round(random.uniform(18.0, 35.0), 2),\n            \"humidity\": round(random.uniform(30.0,
+    80.0), 2),\n            \"status\": random.choice([\"OK\", \"WARN\", \"ERROR\"]),\n
+    \           \"timestamp\": event_time,\n        }\n        message = json.dumps(payload)\n
+    \       result = client.publish(MQTT_TOPIC, message)\n        if result.rc ==
+    0:\n            print(f\"\U0001F4E4 Published: {message}\")\n        else:\n            print(f\"⚠️
+    Failed to publish message: {result}\")\n        time.sleep(random.uniform(2,5))\n\nif
+    __name__ == \"__main__\":\n    client.connect(MQTT_BROKER, MQTT_PORT, 60)\n    client.loop_start()\n
+    \   print(\"✅ MQTT Dynamic Producer started...\")\n    publish_message()\n"
+kind: ConfigMap
+metadata:
+  name: mqtt-producer-script
+  namespace: bpclapp

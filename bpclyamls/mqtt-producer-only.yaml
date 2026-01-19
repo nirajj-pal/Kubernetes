@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  generation: 6
+  labels:
+    app: python-app
+  name: mqtt-producer-only
+  namespace: bpclapp
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: python-app
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2025-11-19T11:25:03Z"
+      creationTimestamp: null
+      labels:
+        app: python-app
+    spec:
+      containers:
+      - args:
+        - -c
+        - sleep infinity
+        command:
+        - /bin/bash
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        name: python-container
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/producer.py
+          name: script-volume
+          subPath: producer.py
+        - mountPath: /app/scripts
+          name: script-deps
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: mqtt-producer-script
+        name: script-volume
+      - emptyDir: {}
+        name: script-deps

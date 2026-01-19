@@ -1,0 +1,35 @@
+apiVersion: v1
+data:
+  consumer.py: "from confluent_kafka import Consumer, KafkaException, KafkaError\nimport
+    psycopg2\nimport json\nfrom datetime import datetime\n\nconf = {\n    \"bootstrap.servers\":
+    \"10.101.95.38:9092\",\n    \"security.protocol\": \"SASL_PLAINTEXT\",\n    \"sasl.mechanism\":
+    \"PLAIN\",\n    \"sasl.username\": \"admin\",\n    \"sasl.password\": \"admin-secret\",\n
+    \   \"group.id\": \"mqtt-consumer-group\",\n    \"auto.offset.reset\": \"earliest\",\n}\n\nconsumer
+    = Consumer(conf)\nconsumer.subscribe([\"mqtt_data\"])\n\npg_conf = {\n    \"host\":
+    \"10.48.231.2\",\n    \"port\": 5432,\n    \"database\": \"iot_data\",\n    \"user\":
+    \"dbadmin\",\n    \"password\": \"dbadmin\",\n}\n\nconn = psycopg2.connect(**pg_conf)\ncursor
+    = conn.cursor()\n\nprint(\"✅ Kafka Consumer with auth started. Waiting for messages...\")\n\ntry:\n
+    \   while True:\n        msg = consumer.poll(1.0)\n        if msg is None:\n            continue\n
+    \       if msg.error():\n            if msg.error().code() == KafkaError._PARTITION_EOF:\n
+    \               continue\n            else:\n                raise KafkaException(msg.error())\n\n
+    \       message = msg.value().decode(\"utf-8\")\n        print(f\"\U0001F4E9 Received
+    from Kafka: {message}\")\n\n        try:\n            data = json.loads(message)\n\n
+    \           device_id = data.get(\"device_id\", \"unknown\")\n            temperature
+    = float(data.get(\"temperature\", 0))\n            humidity = float(data.get(\"humidity\",
+    0))\n            status = data.get(\"status\", \"N/A\")\n            event_time
+    = data.get(\"timestamp\", datetime.utcnow().isoformat())\n\n            cursor.execute(\n
+    \               \"\"\"\n                INSERT INTO device_data_sql (device_id,
+    temperature, humidity, status, event_time)\n                VALUES (%s, %s, %s,
+    %s, %s);\n            \"\"\",\n                (device_id, temperature, humidity,
+    status, event_time),\n            )\n\n            cursor.execute(\n                \"\"\"\n
+    \               INSERT INTO device_data_nosql (device_id, payload)\n                VALUES
+    (%s, %s);\n            \"\"\",\n                (device_id, json.dumps(data)),\n
+    \           )\n\n            conn.commit()\n            print(f\"✅ Saved to PostgreSQL
+    for device {device_id}\")\n\n        except Exception as e:\n            print(f\"❌
+    Database insert error: {e}\")\n            conn.rollback()\n\nexcept KeyboardInterrupt:\n
+    \   print(\"⏹️ Stopping consumer...\")\n\nfinally:\n    consumer.close()\n    cursor.close()\n
+    \   conn.close()\n"
+kind: ConfigMap
+metadata:
+  namespace: bpclapp
+  resourceVersion: "3927864"
