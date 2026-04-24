@@ -1,0 +1,266 @@
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+kubectl create namespace argocd
+helm upgrade --install argocd argo/argo-cd -n argocd
+kubectl get pods -n argocd
+kubectl get svc -n argocd
+
+argocd admin initial-password -n argocd
+This password must be only used for first time login. We strongly recommend you update the password using `argocd account update-password`
+
+
+=======================================================
+
+In nirajj-pal/GitHub-Actions
+
+Settings > Actions > Runners > New self-hosted runner > select > Linux > x64 > follow the steps 
+
+cd /home/githubrunner/actions-runner
+
+sudo -u githubrunner ./config.sh \
+  --url https://github.com/nirajj-pal/GitHub-Actions \
+  --token  \
+  --name worker-1-github-actions \
+  --labels docker-build,node-app \
+  --work _work \
+  --unattended
+
+./config.sh --url https://github.com/nirajj-pal/GitHub-Actions --token 
+
+
+===========================================================
+Stop the runner service
+
+sudo systemctl stop actions.runner.nirajj-pal-sample-node-app.worker-1.service
+sudo systemctl disable actions.runner.nirajj-pal-sample-node-app.worker-1.service
+sudo systemctl status actions.runner.nirajj-pal-sample-node-app.worker-1.service
+
+Settings > Actions > Runners > select runner > Remove
+
+cd /home/githubrunner/actions-runner
+
+sudo ./svc.sh uninstall
+
+sudo -u githubrunner ./config.sh remove --token <OLD_RUNNER_REMOVE_TOKEN>
+
+sudo -u githubrunner ./config.sh remove --token  
+
+./config.sh --url https://github.com/nirajj-pal/sample-node-app --token 
+
+=======================================================================
+
+Create GITOPS_PAT
+
+nirajj-pal/sample-node-app-manifests
+
+Profile icon > Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token
+
+Token name:
+GITOPS_PAT
+
+Resource owner:
+nirajj-pal
+
+Repository access:
+Only select repositories
+
+Selected repository:
+sample-node-app-manifests
+
+Repository permissions:
+Contents: Read and write
+Metadata: Read
+
+
+Generate token
+
+nirajj-pal/GitHub-Actions
+
+Settings > Secrets and variables > Actions > New repository secret
+
+DOCKERHUB_USERNAME = nirajpal
+DOCKERHUB_TOKEN    = your Docker Hub access token
+GITOPS_PAT         = GitHub PAT for pushing to manifest repo
+
+Add the token as a secret in the workflow repo
+nirajj-pal/GitHub-Actions
+
+GitHub-Actions > Settings > Secrets and variables > Actions > New repository secret
+
+Name: GITOPS_PAT
+Secret: paste the fine-grained PAT
+
+
+=======================================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "kubernetes-cicd-tutorial-main/**"
+      - ".github/workflows/ci-cd.yml"
+
+  workflow_dispatch:
+
+env:
+  APP_DIR: kubernetes-cicd-tutorial-main
+
+  # Docker Hub image
+  DOCKER_IMAGE_NAME: docker.io/nirajpal/sample-node-app
+
+  # Manifest repo
+  MANIFEST_REPO: nirajj-pal/sample-node-app-manifests
+  MANIFEST_BRANCH: main
+  MANIFEST_PATH: manifest-repo/kubernetes-manifest-main/cmsapi/dev
+  KUSTOMIZATION_FILE: kustomization.yaml
+
+  # Current image name present in kustomization.yaml
+  OLD_IMAGE_NAME: harbor.lr.in/project-lr/ordermutationmsapi
+
+jobs:
+  build-and-push:
+    runs-on: [self-hosted, linux, x64, docker-build]
+
+    steps:
+      - name: Checkout application repo
+        uses: actions/checkout@v4
+
+      - name: Generate image tag
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "FULL_IMAGE=${DOCKER_IMAGE_NAME}:$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Login to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io \
+            -u "${{ secrets.DOCKERHUB_USERNAME }}" \
+            --password-stdin
+
+      - name: Build Docker image
+        run: |
+          docker build -t "$FULL_IMAGE" "$APP_DIR"
+
+      - name: Run Trivy image scan
+        run: |
+          mkdir -p "$HOME/.cache/trivy"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/" \
+            aquasec/trivy:0.70.0 image \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --no-progress \
+            "$FULL_IMAGE"
+
+      - name: Push Docker image
+        run: |
+          docker push "$FULL_IMAGE"
+
+      - name: Checkout manifest repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MANIFEST_REPO }}
+          ref: ${{ env.MANIFEST_BRANCH }}
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops
+
+      - name: Update kustomization.yaml image
+        run: |
+          cd "gitops/${MANIFEST_PATH}"
+
+          echo "Before update:"
+          cat "${KUSTOMIZATION_FILE}"
+
+          python3 - <<EOF
+          from pathlib import Path
+
+          file = Path("${KUSTOMIZATION_FILE}")
+          content = file.read_text().splitlines()
+
+          old_image = "${OLD_IMAGE_NAME}"
+          new_image = "${DOCKER_IMAGE_NAME}"
+          new_tag = "${IMAGE_TAG}"
+
+          output = []
+          inside_image_block = False
+          image_found = False
+          new_name_written = False
+          new_tag_written = False
+
+          for line in content:
+              stripped = line.strip()
+
+              if stripped == f"- name: {old_image}":
+                  inside_image_block = True
+                  image_found = True
+                  new_name_written = False
+                  new_tag_written = False
+                  output.append(line)
+                  continue
+
+              if inside_image_block:
+                  if stripped.startswith("- name:"):
+                      if not new_name_written:
+                          output.append("    newName: " + new_image)
+                      if not new_tag_written:
+                          output.append("    newTag: " + new_tag)
+                      inside_image_block = False
+
+                  elif stripped.startswith("newName:"):
+                      indent = line[:len(line) - len(line.lstrip())]
+                      output.append(f"{indent}newName: {new_image}")
+                      new_name_written = True
+                      continue
+
+                  elif stripped.startswith("newTag:"):
+                      indent = line[:len(line) - len(line.lstrip())]
+                      output.append(f"{indent}newTag: {new_tag}")
+                      new_tag_written = True
+                      continue
+
+              output.append(line)
+
+          if inside_image_block:
+              if not new_name_written:
+                  output.append("    newName: " + new_image)
+              if not new_tag_written:
+                  output.append("    newTag: " + new_tag)
+
+          if not image_found:
+              raise SystemExit(f"Image name not found in kustomization.yaml: {old_image}")
+
+          file.write_text("\\n".join(output) + "\\n")
+          EOF
+
+          echo "After update:"
+          cat "${KUSTOMIZATION_FILE}"
+
+      - name: Commit and push manifest changes
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+        run: |
+          cd gitops
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          git add "${MANIFEST_PATH}/${KUSTOMIZATION_FILE}"
+
+          git commit -m "Update Docker image tag to ${IMAGE_TAG}" || echo "No changes to commit"
+
+          git remote set-url origin "https://x-access-token:${GITOPS_PAT}@github.com/${MANIFEST_REPO}.git"
+
+          git push origin "${MANIFEST_BRANCH}"
+
+
+
+
+
+
+
