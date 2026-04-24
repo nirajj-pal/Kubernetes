@@ -1,0 +1,210 @@
+GitLab recommends keeping sensitive values like tokens in the project’s Settings > CI/CD > Variables UI, while non-sensitive values can live in .gitlab-ci.yml. In the GitLab UI, the exact path is Project > Settings > CI/CD > Variables > Add variable. Protected variables are only available to pipelines running on protected branches or protected tags.
+
+Step 1: Prepare Docker Hub
+
+If nirajpal/demorepo does not already exist, create it in Docker Hub from My Hub > Repositories > Create repository. Docker Hub repo names must be unique and use lowercase letters, numbers, hyphens, or underscores. If you make it Public, anyone can pull it. If you make it Private, only you and collaborators can access it.
+
+Create a Docker Hub personal access token from Docker Home > Account settings > Personal access tokens > Generate new token. Docker explicitly recommends PATs for CI/CD automation instead of using your account password, and those tokens are what you should use with docker login
+
+Step 2: Create or reuse a GitLab token for the deploy job
+
+Project > Settings > Access tokens. Save the token value immediately, because GitLab only shows it once
+
+Step 3: Add the GitLab CI/CD variables
+
+Settings > CI/CD > Variables > Add variable
+DOCKERHUB_USERNAME = nirajpal
+DOCKERHUB_TOKEN = your Docker Hub PAT
+GITLAB_USER = any non-empty value, for example gitlab-ci
+GITLAB_TOKEN = your GitLab project access token
+
+Step 5: If your Docker Hub repo is private, add a pull secret in Kubernetes
+
+kubectl create secret docker-registry dockerhub-creds \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username=nirajpal \
+  --docker-password='<DOCKERHUB_PAT>' \
+  -n python-pipeline
+  
+Step 2: Create a project runner in GitLab
+
+Settings → CI/CD → Runners
+Then:
+Click Create project runner
+Select Linux as the platform
+Set the runner tag to: docker
+Add a description like python-pipeline-docker-runner
+Create the runner
+Copy the runner authentication token that starts with glrt-  
+
+This matters because all your jobs use:
+tags:
+  - docker
+  
+Step 3: Prepare a separate runner VM
+
+sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo docker run hello-world  
+
+curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" -o script.deb.sh
+less script.deb.sh
+sudo bash script.deb.sh
+sudo apt update
+sudo apt install -y gitlab-runner
+
+Step 4: Register the runner
+
+sudo gitlab-runner register
+
+GitLab instance URL:http://172.16.106.49/
+Token: the glrt-... token from the project runner page
+Description: python-pipeline-docker-runner
+Tags: docker
+Executor: docker
+Default Docker image: docker:24.0.5-cli
+
+
+------------------------------------------------------------------
+
+vi /etc/gitlab-runner/config.toml
+
+concurrent = 1
+check_interval = 0
+connection_max_age = "15m0s"
+shutdown_timeout = 0
+
+[session_server]
+  session_timeout = 1800
+
+[[runners]]
+  name = "python-pipeline-docker-runner"
+  url = "http://172.16.106.49/"
+  id = 1
+  token = ""
+  token_obtained_at = 2026-03-06T14:56:59Z
+  token_expires_at = 0001-01-01T00:00:00Z
+  executor = "docker"
+  [runners.docker]
+    tls_verify = false
+    image = "docker:24.0.5-cli"
+    privileged = true
+    disable_entrypoint_overwrite = false
+    oom_kill_disable = false
+    disable_cache = false
+    volumes = ["/cache"]
+    shm_size = 0
+    network_mtu = 0
+
+
+---------------------------------------------------------------
+
+.gitlab-ci.yml
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKERHUB_IMAGE: "nirajpal/demorepo"
+  GITLAB_REPO_URL: "http://172.16.106.49/root/python-pipeline.git"
+
+test:
+  stage: test
+  image: python:3.9
+  before_script:
+    - python -m pip install --no-cache-dir -r requirements.txt
+    - python -m pip install --no-cache-dir flake8 pytest
+  script:
+    - echo "Running tests for $CI_PROJECT_DIR"
+    - export PYTHONPATH="$PYTHONPATH:$CI_PROJECT_DIR"
+    - flake8 app.py
+    - pytest test/test_app.py
+  tags:
+    - docker
+
+build:
+  stage: build
+  image: docker:24.0.5-cli
+  services:
+    - name: docker:24.0.5-dind
+      command: ["--host=tcp://0.0.0.0:2375", "--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - docker info
+    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+  script:
+    - docker build -t "$DOCKERHUB_IMAGE:$CI_COMMIT_SHA" .
+    - docker push "$DOCKERHUB_IMAGE:$CI_COMMIT_SHA"
+  tags:
+    - docker
+
+deploy_dev:
+  stage: deploy
+  image: alpine:3.18.2
+  before_script:
+    - apk add --no-cache git yq
+    - git config --global user.email "gitlab-runner@virtualelephant.com"
+    - git config --global user.name "GitLab Runner"
+    - git remote set-url origin "http://$GITLAB_USER:$GITLAB_TOKEN@172.16.106.49/root/python-pipeline.git"
+    - git fetch origin main
+    - git checkout -B main origin/main
+  script:
+    - echo "Deploying to development environment"
+    - yq e -i 'select(.kind == "Deployment").spec.template.spec.containers[0].image = "'$DOCKERHUB_IMAGE:$CI_COMMIT_SHA'"' k8s/dev/python-pipeline-deployment.yaml
+    - git add k8s/dev/python-pipeline-deployment.yaml
+    - git commit -m "Update Dev deployment image to $CI_COMMIT_SHA [skip ci]" || echo "No changes to commit"
+    - git push origin HEAD:main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  tags:
+    - docker
+
+deploy_stage:
+  stage: deploy
+  image: docker:24.0.5-cli
+  services:
+    - name: docker:24.0.5-dind
+      command: ["--host=tcp://0.0.0.0:2375", "--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - apk add --no-cache git yq
+    - docker info
+    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+    - git config --global user.email "gitlab-runner@virtualelephant.com"
+    - git config --global user.name "GitLab Runner"
+    - git remote set-url origin "http://$GITLAB_USER:$GITLAB_TOKEN@172.16.106.49/root/python-pipeline.git"
+    - git fetch origin main
+    - git checkout -B main origin/main
+  script:
+    - echo "Promoting to stage environment"
+    - docker pull "$DOCKERHUB_IMAGE:$CI_COMMIT_SHA"
+    - docker tag "$DOCKERHUB_IMAGE:$CI_COMMIT_SHA" "$DOCKERHUB_IMAGE:stage-$CI_COMMIT_SHA"
+    - docker push "$DOCKERHUB_IMAGE:stage-$CI_COMMIT_SHA"
+    - yq e -i 'select(.kind == "Deployment").spec.template.spec.containers[0].image = "'$DOCKERHUB_IMAGE:stage-$CI_COMMIT_SHA'"' k8s/stage/python-pipeline-deployment.yaml
+    - git add k8s/stage/python-pipeline-deployment.yaml
+    - git commit -m "Promote SHA $CI_COMMIT_SHA to stage [skip ci]" || echo "No changes to commit"
+    - git push origin HEAD:main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  tags:
+    - docker
