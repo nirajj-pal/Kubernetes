@@ -1,0 +1,481 @@
+Below is a clean and professional step-by-step guide for implementing Argo CD in a Kubernetes environment.
+
+I have also replaced the real passwords and tokens with placeholders. Avoid storing actual passwords or tokens directly in documents or scripts. Since credentials were shared in the command text, it is recommended to rotate them before using this in production.
+
+ Argo CD Implementation Guide
+
+ 1. Purpose
+
+This document explains the step-by-step process to install and configure Argo CD in a Kubernetes cluster.
+
+Argo CD will be used to deploy applications using the GitOps approach. The Kubernetes manifests will be stored in a Git repository, and Argo CD will continuously monitor the repository and sync changes to the Kubernetes cluster.
+
+ 2. Prerequisites
+
+Before starting the implementation, ensure the following are available:
+
+* Kubernetes cluster access
+* `kubectl` configured on the master or bastion server
+* Helm installed
+* GitLab manifest repository access
+* Harbor registry credentials
+* Argo CD CLI access
+* Required namespaces created in Kubernetes
+* GitLab runner configured, if GitLab CI/CD is used
+
+ 3. Add the Argo Helm Repository
+
+Add the official Argo Helm repository:
+
+
+helm repo add argo https://argoproj.github.io/argo-helm
+
+
+Update the Helm repository:
+
+
+helm repo update
+
+
+ 4. Create the Argo CD Namespace
+
+Create a dedicated namespace for Argo CD:
+
+
+kubectl create namespace argocd
+
+
+ 5. Install Argo CD Using Helm
+
+Install Argo CD using Helm:
+
+
+helm upgrade --install argocd argo/argo-cd -n argocd
+
+
+Verify that the Argo CD pods are running:
+
+
+kubectl get pods -n argocd
+
+
+Check the Argo CD services:
+
+
+kubectl get svc -n argocd
+
+
+ 6. Get the Initial Argo CD Admin Password
+
+Run the following command to get the initial admin password:
+
+
+argocd admin initial-password -n argocd
+
+
+Save the password securely. It will be required to log in to Argo CD.
+
+ 7. Install the Argo CD CLI
+
+Download the latest Argo CD CLI binary:
+
+
+curl -sSL -o /usr/local/bin/argocd \
+  https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+
+
+Give execute permission:
+
+
+chmod +x /usr/local/bin/argocd
+
+
+Verify the Argo CD CLI installation:
+
+
+argocd version --client
+
+
+ 8. Access the Argo CD Server
+
+If the Argo CD service is not exposed externally, use port forwarding:
+
+
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+
+
+Keep this terminal session running.
+
+Now log in to Argo CD from another terminal:
+
+
+argocd login localhost:8080 \
+  --username admin \
+  --password '<ARGOCD_ADMIN_PASSWORD>' \
+  --insecure
+
+
+Replace:
+
+text
+<ARGOCD_ADMIN_PASSWORD>
+
+
+with the password received from the initial password command.
+
+ 9. Verify GitLab Runner Status
+
+If GitLab CI/CD is part of the deployment flow, verify that the GitLab runner services are running:
+
+
+systemctl status gitlab-runsvdir
+
+
+
+systemctl status gitlab-runner
+
+
+If the runner is not running, start and enable it:
+
+
+systemctl start gitlab-runner
+systemctl enable gitlab-runner
+
+
+ 10. Prepare the Manifest Repository Structure
+
+The Kubernetes manifest repository should be organized clearly.
+
+Example structure:
+
+text
+DevOps-Manifest/
+└── kubernetes-manifest/
+    └── ordermutationmsapi/
+        └── dev/
+            ├── namespace.yaml
+            ├── deployment.yaml
+            ├── service.yaml
+            └── kustomization.yaml
+
+
+In this example:
+
+* `ordermutationmsapi` is the application name
+* `dev` is the target environment
+* `deployment.yaml` contains the Kubernetes Deployment
+* `service.yaml` contains the Kubernetes Service
+* `namespace.yaml` contains the namespace definition
+* `kustomization.yaml` manages the manifest resources and image updates
+
+ 11. Create a GitLab Project Access Token
+
+Go to the Kubernetes-manifest GitLab project.
+
+Navigate to:
+
+text
+Settings > Access Tokens > Add new token
+
+
+Create a new token with the following details:
+
+text
+Token name: gitlab-ci-manifest-writer
+Role: Maintainer
+Scope: write_repository
+
+
+After creating the token, copy it immediately. GitLab shows the token value only once.
+
+ 12. Add GitLab CI/CD Variables
+
+Add the following variables in the GitLab project where the CI/CD pipeline is running:
+
+text
+MANIFEST_REPO_USER
+MANIFEST_REPO_TOKEN
+
+
+Example:
+
+text
+MANIFEST_REPO_USER  = <GITLAB_USERNAME_OR_TOKEN_USER>
+MANIFEST_REPO_TOKEN = <GITLAB_PROJECT_ACCESS_TOKEN>
+
+
+These variables will be used by the pipeline to update the image tag in the manifest repository.
+
+ 13. Create Harbor Image Pull Secret
+
+Create the target application namespace if it does not already exist:
+
+
+kubectl create namespace dev
+
+
+Create the Harbor registry secret in the `dev` namespace:
+
+
+kubectl create secret docker-registry harbor-regcred \
+  --docker-server=<HARBOR_REGISTRY_URL> \
+  --docker-username=<HARBOR_USERNAME> \
+  --docker-password='<HARBOR_PASSWORD>' \
+  -n dev
+
+
+Example:
+
+
+kubectl create secret docker-registry harbor-regcred \
+  --docker-server=10.48.209.136 \
+  --docker-username=admin \
+  --docker-password='<HARBOR_PASSWORD>' \
+  -n dev
+
+
+Verify the secret:
+
+
+kubectl get secret harbor-regcred -n dev
+
+
+ 14. Add the Manifest Repository to Argo CD
+
+Add the GitLab manifest repository to Argo CD:
+
+
+argocd repo add http://10.48.209.150/LR-POC/DevOps-Manifest/kubernetes-manifest.git \
+  --username <GIT_USERNAME> \
+  --password '<GIT_PASSWORD_OR_TOKEN>' \
+  --insecure-skip-server-verification
+
+
+Verify that the repository has been added successfully:
+
+
+argocd repo list
+
+
+ 15. Create the Argo CD Application Manifest
+
+Create a file named:
+
+
+argocd-application.yaml
+
+
+Add the following content:
+
+yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ordermutationmsapi-dev
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: http://10.48.209.150/LR-POC/DevOps-Manifest/kubernetes-manifest.git
+    targetRevision: main
+    path: ordermutationmsapi/dev
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
+
+Explanation:
+
+text
+name: Argo CD application name
+namespace: Argo CD namespace
+repoURL: Git repository where Kubernetes manifests are stored
+targetRevision: Git branch to track
+path: Manifest folder path inside the repository
+destination.namespace: Kubernetes namespace where the app will be deployed
+prune: Removes resources from the cluster if they are removed from Git
+selfHeal: Automatically fixes manual changes made directly in the cluster
+CreateNamespace=true: Creates the namespace automatically if it does not exist
+
+
+ 16. Apply the Argo CD Application
+
+Apply the Argo CD application manifest:
+
+
+kubectl apply -f argocd-application.yaml
+
+
+Verify that the application was created:
+
+
+kubectl get application.argoproj.io ordermutationmsapi-dev -n argocd
+
+
+You can also check the application using the Argo CD CLI:
+
+
+argocd app get ordermutationmsapi-dev
+
+
+ 17. Enable Automated Sync
+
+Automated sync is already enabled in the YAML file. However, you can also enable it using the CLI:
+
+
+argocd app set ordermutationmsapi-dev --sync-policy automated
+
+
+Enable self-healing:
+
+
+argocd app set ordermutationmsapi-dev --sync-policy automated --self-heal
+
+
+Enable pruning:
+
+
+argocd app set ordermutationmsapi-dev --auto-prune
+
+
+ 18. Sync the Application
+
+Run the first manual sync:
+
+
+argocd app sync ordermutationmsapi-dev
+
+
+Check the application status:
+
+
+argocd app get ordermutationmsapi-dev
+
+
+The application should show:
+
+text
+Sync Status: Synced
+Health Status: Healthy
+
+
+ 19. Verify the Application in Kubernetes
+
+Check resources in the `dev` namespace:
+
+
+kubectl get all -n dev
+
+
+Check pods:
+
+
+kubectl get pods -n dev
+
+
+Check services:
+
+
+kubectl get svc -n dev
+
+
+Check deployment:
+
+
+kubectl get deployment -n dev
+
+
+ 20. Validate GitOps Flow
+
+To confirm that Argo CD is working correctly:
+
+1. Update the image tag or manifest file in the Git repository.
+2. Commit and push the change to the `main` branch.
+3. Argo CD will detect the change.
+4. The application will automatically sync to the Kubernetes cluster.
+5. Verify the rollout:
+
+
+kubectl rollout status deployment/<DEPLOYMENT_NAME> -n dev
+
+
+Example:
+
+
+kubectl rollout status deployment/ordermutationmsapi -n dev
+
+
+ 21. Useful Argo CD Commands
+
+Check Argo CD applications:
+
+
+argocd app list
+
+
+Get application details:
+
+
+argocd app get ordermutationmsapi-dev
+
+
+Sync application manually:
+
+
+argocd app sync ordermutationmsapi-dev
+
+
+Check repository list:
+
+
+argocd repo list
+
+
+Delete an application from Argo CD:
+
+
+argocd app delete ordermutationmsapi-dev
+
+
+Check Argo CD pods:
+
+
+kubectl get pods -n argocd
+
+
+Check Argo CD services:
+
+
+kubectl get svc -n argocd
+
+
+ 23. Final Implementation Flow
+
+The complete flow will work as follows:
+
+text
+Developer pushes code
+        ↓
+GitLab CI/CD builds the image
+        ↓
+Image is pushed to Harbor
+        ↓
+Pipeline updates image tag in manifest repository
+        ↓
+Argo CD detects manifest repository change
+        ↓
+Argo CD syncs the application to Kubernetes
+        ↓
+Application is deployed in the target namespace
+
+
+This completes the Argo CD implementation process.
