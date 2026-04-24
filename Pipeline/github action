@@ -1,98 +1,322 @@
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo update
-kubectl create namespace argocd
-helm upgrade --install argocd argo/argo-cd -n argocd
-kubectl get pods -n argocd
-kubectl get svc -n argocd
+Below is a clean, professional step-by-step guide for implementing GitHub Actions CI/CD with a self-hosted runner, Docker Hub, Trivy scan, and GitOps manifest update.
 
-argocd admin initial-password -n argocd
-This password must be only used for first time login. We strongly recommend you update the password using `argocd account update-password`
+---
+
+ GitHub Actions Implementation Guide
+
+ 1. Objective
+
+This guide explains how to implement a GitHub Actions CI/CD pipeline for the repository:
 
 
-=======================================================
+nirajj-pal/GitHub-Actions
 
-In nirajj-pal/GitHub-Actions
 
-Settings > Actions > Runners > New self-hosted runner > select > Linux > x64 > follow the steps 
+The pipeline will perform the following tasks:
 
+1. Trigger on code changes in the main branch.
+2. Build a Docker image.
+3. Scan the Docker image using Trivy.
+4. Push the Docker image to Docker Hub.
+5. Update the Kubernetes manifest repository with the latest image tag.
+6. Push the updated manifest changes to the GitOps repository.
+
+---
+
+ 2. Repository Details
+
+ Application Repository
+
+
+nirajj-pal/GitHub-Actions
+
+
+This repository contains the application source code and GitHub Actions workflow.
+
+ Manifest Repository
+
+
+nirajj-pal/sample-node-app-manifests
+
+
+This repository contains the Kubernetes manifest files that will be updated by the pipeline.
+
+Manifest path:
+
+
+manifest-repo/kubernetes-manifest-main/cmsapi/dev
+
+
+---
+
+ 3. Configure Self-Hosted Runner
+
+ Step 1: Open GitHub Runner Settings
+
+Go to the application repository:
+
+
+nirajj-pal/GitHub-Actions
+
+
+Then open:
+
+
+Settings > Actions > Runners > New self-hosted runner
+
+
+Select:
+
+
+Linux > x64
+
+
+GitHub will display the runner registration commands.
+
+---
+
+ Step 2: Go to the Runner Directory
+
+On the runner server, switch to the runner directory:
+
+bash
 cd /home/githubrunner/actions-runner
 
+
+---
+
+ Step 3: Register the Runner
+
+Run the following command to configure the runner.
+
+Replace `<RUNNER_TOKEN>` with the token shown on the GitHub runner setup page.
+
+bash
 sudo -u githubrunner ./config.sh \
   --url https://github.com/nirajj-pal/GitHub-Actions \
-  --token  \
+  --token <RUNNER_TOKEN> \
   --name worker-1-github-actions \
   --labels docker-build,node-app \
   --work _work \
   --unattended
 
-./config.sh --url https://github.com/nirajj-pal/GitHub-Actions --token 
+
+ Explanation
+
+| Option         | Description                                           |
+| -------------- | ----------------------------------------------------- |
+| `--url`        | GitHub repository where the runner will be registered |
+| `--token`      | Runner registration token from GitHub                 |
+| `--name`       | Name of the self-hosted runner                        |
+| `--labels`     | Labels used by the workflow to select this runner     |
+| `--work`       | Working directory used by the runner                  |
+| `--unattended` | Runs the configuration without interactive prompts    |
+
+---
+
+ Step 4: Install and Start the Runner Service
+
+After registration, install the runner as a system service:
+
+bash
+sudo ./svc.sh install githubrunner
 
 
-===========================================================
-Stop the runner service
+Start the runner service:
 
+bash
+sudo ./svc.sh start
+
+
+Check the runner service status:
+
+bash
+sudo ./svc.sh status
+
+
+You can also verify the runner from GitHub:
+
+
+Repository > Settings > Actions > Runners
+
+
+The runner should show as Idle or Online.
+
+---
+
+ 4. Remove an Old Runner Configuration
+
+Use this section only if the runner was previously registered with another repository and needs to be removed.
+
+---
+
+ Step 1: Stop the Existing Runner Service
+
+First, check the runner service name:
+
+bash
+systemctl list-units "actions.runner.*"
+
+
+Then stop the existing service.
+
+Example:
+
+bash
 sudo systemctl stop actions.runner.nirajj-pal-sample-node-app.worker-1.service
+
+
+Disable the service:
+
+bash
 sudo systemctl disable actions.runner.nirajj-pal-sample-node-app.worker-1.service
+
+
+Check the status:
+
+bash
 sudo systemctl status actions.runner.nirajj-pal-sample-node-app.worker-1.service
 
-Settings > Actions > Runners > select runner > Remove
 
+---
+
+ Step 2: Remove Runner from GitHub UI
+
+Go to the old repository where the runner was registered:
+
+
+Settings > Actions > Runners
+
+
+Select the runner and click:
+
+
+Remove
+
+
+GitHub will provide a runner removal token.
+
+---
+
+ Step 3: Uninstall the Runner Service
+
+Go to the runner directory:
+
+bash
 cd /home/githubrunner/actions-runner
 
+
+Uninstall the runner service:
+
+bash
 sudo ./svc.sh uninstall
 
+
+---
+
+ Step 4: Remove Runner Configuration
+
+Replace `<OLD_RUNNER_REMOVE_TOKEN>` with the token shown in GitHub while removing the runner.
+
+bash
 sudo -u githubrunner ./config.sh remove --token <OLD_RUNNER_REMOVE_TOKEN>
 
-sudo -u githubrunner ./config.sh remove --token  
 
-./config.sh --url https://github.com/nirajj-pal/sample-node-app --token 
+After this, the runner can be registered again with the correct repository.
 
-=======================================================================
+---
 
-Create GITOPS_PAT
+ 5. Create GitOps Personal Access Token
 
-nirajj-pal/sample-node-app-manifests
+A GitHub Personal Access Token is required so that the GitHub Actions workflow can push changes to the manifest repository.
+
+---
+
+ Step 1: Open GitHub Token Settings
+
+Go to GitHub:
+
 
 Profile icon > Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token
 
-Token name:
-GITOPS_PAT
 
-Resource owner:
-nirajj-pal
+---
 
-Repository access:
-Only select repositories
+ Step 2: Create the Token
 
-Selected repository:
-sample-node-app-manifests
+Use the following values:
 
-Repository permissions:
-Contents: Read and write
-Metadata: Read
+| Field               | Value                       |
+| ------------------- | --------------------------- |
+| Token name          | `GITOPS_PAT`                |
+| Resource owner      | `nirajj-pal`                |
+| Repository access   | Only select repositories    |
+| Selected repository | `sample-node-app-manifests` |
+
+---
+
+ Step 3: Set Repository Permissions
+
+Set the following permissions:
+
+| Permission | Access         |
+| ---------- | -------------- |
+| Contents   | Read and write |
+| Metadata   | Read           |
+
+Then click:
 
 
 Generate token
 
+
+Copy the generated token and keep it safe.
+
+---
+
+ 6. Add Repository Secrets
+
+Go to the workflow repository:
+
+
 nirajj-pal/GitHub-Actions
 
+
+Open:
+
+
 Settings > Secrets and variables > Actions > New repository secret
+
+
+Add the following secrets:
+
+| Secret Name          | Value                                               |
+| -------------------- | --------------------------------------------------- |
+| `DOCKERHUB_USERNAME` | Docker Hub username                                 |
+| `DOCKERHUB_TOKEN`    | Docker Hub access token                             |
+| `GITOPS_PAT`         | GitHub fine-grained PAT for the manifest repository |
+
+Example:
+
 
 DOCKERHUB_USERNAME = nirajpal
 DOCKERHUB_TOKEN    = your Docker Hub access token
 GITOPS_PAT         = GitHub PAT for pushing to manifest repo
 
-Add the token as a secret in the workflow repo
-nirajj-pal/GitHub-Actions
 
-GitHub-Actions > Settings > Secrets and variables > Actions > New repository secret
+---
 
-Name: GITOPS_PAT
-Secret: paste the fine-grained PAT
+ 7. Create GitHub Actions Workflow
+
+Create the workflow file in the application repository:
 
 
-=======================================================================================
+.github/workflows/ci-cd.yml
 
+
+Add the following pipeline:
+
+yaml
 name: CI/CD Pipeline
 
 on:
@@ -100,7 +324,7 @@ on:
     branches:
       - main
     paths:
-      - "kubernetes-cicd-tutorial-main/**"
+      - "kubernetes-cicd-tutorial-main/"
       - ".github/workflows/ci-cd.yml"
 
   workflow_dispatch:
@@ -108,16 +332,16 @@ on:
 env:
   APP_DIR: kubernetes-cicd-tutorial-main
 
-  # Docker Hub image
+   Docker Hub image
   DOCKER_IMAGE_NAME: docker.io/nirajpal/sample-node-app
 
-  # Manifest repo
+   Manifest repo
   MANIFEST_REPO: nirajj-pal/sample-node-app-manifests
   MANIFEST_BRANCH: main
   MANIFEST_PATH: manifest-repo/kubernetes-manifest-main/cmsapi/dev
   KUSTOMIZATION_FILE: kustomization.yaml
 
-  # Current image name present in kustomization.yaml
+   Current image name present in kustomization.yaml
   OLD_IMAGE_NAME: harbor.lr.in/project-lr/ordermutationmsapi
 
 jobs:
@@ -259,8 +483,226 @@ jobs:
           git push origin "${MANIFEST_BRANCH}"
 
 
+---
+
+ 8. Pipeline Explanation
+
+ Trigger Section
+
+yaml
+on:
+  push:
+    branches:
+      - main
 
 
+The pipeline runs when code is pushed to the `main` branch.
+
+yaml
+paths:
+  - "kubernetes-cicd-tutorial-main/"
+  - ".github/workflows/ci-cd.yml"
 
 
+The pipeline only runs when files inside the application directory or workflow file are changed.
 
+yaml
+workflow_dispatch:
+
+
+This allows the pipeline to be triggered manually from the GitHub Actions UI.
+
+---
+
+ Runner Section
+
+yaml
+runs-on: [self-hosted, linux, x64, docker-build]
+
+
+This tells GitHub Actions to run the pipeline on a self-hosted runner with the label:
+
+
+docker-build
+
+
+Make sure the runner is registered with the same label.
+
+---
+
+ Docker Build and Push
+
+The pipeline generates an image tag using the short commit SHA:
+
+bash
+IMAGE_TAG=${GITHUB_SHA::8}
+
+
+Example image:
+
+
+docker.io/nirajpal/sample-node-app:79d61e0
+
+
+Then it builds and pushes the image to Docker Hub.
+
+---
+
+ Trivy Image Scan
+
+The Trivy scan checks the Docker image for vulnerabilities:
+
+yaml
+--severity HIGH,CRITICAL
+
+
+This scans for high and critical vulnerabilities.
+
+yaml
+--exit-code 0
+
+
+This means the pipeline will not fail even if Trivy finds high or critical vulnerabilities.
+
+This is useful when you want visibility of vulnerabilities but do not want to block the deployment.
+
+---
+
+ Manifest Repository Update
+
+The pipeline checks out the manifest repository:
+
+
+nirajj-pal/sample-node-app-manifests
+
+
+Then it updates the image tag in:
+
+
+manifest-repo/kubernetes-manifest-main/cmsapi/dev/kustomization.yaml
+
+
+Finally, it commits and pushes the updated manifest file.
+
+---
+
+ 9. Validation Steps
+
+After completing the setup, validate the implementation.
+
+ Step 1: Check Runner Status
+
+Go to:
+
+
+GitHub-Actions > Settings > Actions > Runners
+
+
+Confirm that the runner is showing as online.
+
+---
+
+ Step 2: Trigger the Pipeline
+
+You can trigger the pipeline in two ways:
+
+ Option 1: Push Code to Main Branch
+
+Push any change inside:
+
+
+kubernetes-cicd-tutorial-main/
+
+
+ Option 2: Trigger Manually
+
+Go to:
+
+
+Actions > CI/CD Pipeline > Run workflow
+
+
+---
+
+ Step 3: Verify Docker Image
+
+Check Docker Hub and confirm that the new image tag is pushed:
+
+
+docker.io/nirajpal/sample-node-app:<commit-sha>
+
+
+---
+
+ Step 4: Verify Manifest Update
+
+Go to the manifest repository:
+
+
+nirajj-pal/sample-node-app-manifests
+
+
+Check the file:
+
+
+manifest-repo/kubernetes-manifest-main/cmsapi/dev/kustomization.yaml
+
+
+Confirm that the image tag has been updated.
+
+---
+
+ 10. Important Notes
+
+1. The self-hosted runner must have Docker installed and running.
+2. The runner user must have permission to run Docker commands.
+3. The GitOps token must have write access to the manifest repository.
+4. The Trivy scan is configured for reporting only and will not fail the pipeline.
+5. The runner labels in GitHub must match the labels used in the workflow.
+6. Do not hardcode tokens in the workflow file. Always use GitHub Secrets.
+
+---
+
+ 11. Basic Troubleshooting Commands
+
+ Check Runner Service
+
+bash
+systemctl list-units "actions.runner.*"
+
+
+bash
+sudo ./svc.sh status
+
+
+ Check Docker
+
+bash
+docker ps
+docker images
+
+
+ Check Runner User Docker Permission
+
+bash
+sudo -u githubrunner docker ps
+
+
+If the above command fails, add the runner user to the Docker group:
+
+bash
+sudo usermod -aG docker githubrunner
+
+
+Then restart the runner service:
+
+bash
+sudo ./svc.sh stop
+sudo ./svc.sh start
+
+
+---
+
+ 12. Final Outcome
+
+After this implementation, the GitHub Actions pipeline will automatically build, scan, push, and update the Kubernetes manifest repository whenever changes are pushed to the application repository. This enables a GitOps-based CI/CD workflow where the latest image tag is automatically updated in the manifest repository for deployment.
