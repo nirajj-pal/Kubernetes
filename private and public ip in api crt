@@ -1,0 +1,461 @@
+#root@k8cluster0310m0:#cd /etc/kubernetes/pki/
+#root@k8cluster0310m0:#openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text
+#root@k8cluster0310m0:/etc/kubernetes/pki# openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 8386869506182600132 (0x746425615d91d5c4)
+        Signature Algorithm: sha256WithRSAEncryption
+        Issuer: CN = kubernetes
+        Validity
+            Not Before: Mar 10 15:31:35 2024 GMT
+            Not After : Mar 10 15:31:36 2025 GMT
+        Subject: CN = kube-apiserver
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (2048 bit)
+                Modulus:
+                    00:9f:cd:11:5c:78:7e:43:80:01:b5:25:42:2e:20:
+                    4e:50:d6:e7:73:52:3a:e9:63:cb:3b:c6:d3:b3:22:
+                    84:81:04:a8:b9:b1:1c:03:81:df:f1:a9:ce:a2:1e:
+                    ae:d3:16:4a:85:28:ac:11:dc:eb:62:a1:73:1f:24:
+                    0b:75:ea:38:32:8d:2b:d3:6c:3c:f0:b8:d1:c9:1d:
+                    73:3d:6a:9b:ae:e3:09:ff:f0:e4:f7:d3:76:d5:69:
+                    89:e8:75:1e:d0:66:5e:f4:46:b8:7b:44:80:5c:13:
+                    e9:05:f5:5f:9e:1f:83:65:6f:2f:02:a6:30:b4:d0:
+                    b8:61:03:f9:a2:17:91:58:5d:b9:2a:6a:e1:61:67:
+                    fc:57:05:4c:8c:58:6b:ea:63:73:24:dd:fb:6d:2a:
+                    33:0b:dd:cc:58:d1:b0:97:71:29:ea:29:14:a8:f3:
+                    59:c3:c2:8c:96:ad:eb:a9:25:b1:1d:56:fe:4a:8e:
+                    b9:08:c6:f5:2a:d8:4e:a9:84:d4:7a:b6:fb:81:af:
+                    24:2f:49:e1:e3:3a:e9:e1:ef:1c:40:b8:df:4c:e2:
+                    2e:7d:c2:a2:eb:71:13:7f:6f:ba:4a:22:63:30:ed:
+                    6f:41:7e:a3:aa:d9:bf:51:11:2c:49:0d:fe:08:c1:
+                    fb:b1:da:cd:d0:fe:54:fa:45:e4:27:c3:bb:77:0f:
+                    b8:59
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Key Usage: critical
+                Digital Signature, Key Encipherment
+            X509v3 Extended Key Usage:
+                TLS Web Server Authentication
+            X509v3 Basic Constraints: critical
+                CA:FALSE
+            X509v3 Authority Key Identifier:
+                B0:E0:BB:92:01:C4:8F:42:15:05:D7:A0:AA:E9:CF:5F:45:73:5C:F4
+            X509v3 Subject Alternative Name:
+                DNS:k8cluster0310m0, DNS:kubernetes, DNS:kubernetes.default, DNS:kubernetes.default.svc, DNS:kubernetes.default.svc.cluster.local, IP Address:10.96.0.1, IP Address:192.168.11.32, IP Address:192.168.11.178
+    Signature Algorithm: sha256WithRSAEncryption
+    Signature Value:
+        8d:60:62:c5:4b:21:3f:a9:48:ba:99:4d:a7:1a:ba:69:cd:25:
+        08:68:f5:82:62:1e:0c:3d:17:b9:93:8b:47:e9:31:1f:42:81:
+        97:19:eb:a4:34:6b:1a:06:26:9b:50:01:bf:ac:0d:4a:bf:03:
+        ef:12:9e:c9:3b:ff:95:cc:c6:57:64:1b:cf:b9:2c:c4:75:f1:
+        d9:a6:53:bd:76:d7:e1:ae:e4:c0:8c:b4:96:de:2a:39:a0:8f:
+        54:85:67:3d:fb:6c:1b:3a:db:44:8c:4d:8e:04:f4:a3:a1:be:
+        d1:09:58:33:ad:c8:ef:fe:ed:27:2d:fa:ac:be:4b:a3:1d:8c:
+        6f:31:5d:ef:d4:ce:50:0a:be:df:3c:aa:a0:a0:b1:e8:09:6d:
+        34:ed:1d:09:79:21:f8:9c:53:aa:4c:c7:a4:f0:41:48:0b:e5:
+        a6:10:2e:99:db:1f:39:cd:4e:1d:f8:11:3d:f2:de:49:74:04:
+        74:1c:94:0b:00:71:df:6a:07:4d:c7:98:92:ce:a5:05:f5:35:
+        b4:f3:e4:54:88:70:45:a6:6c:35:9f:90:50:c8:c8:bc:db:f6:
+        71:fb:2d:17:ea:10:78:9c:a7:67:79:b8:ec:08:11:16:50:5c:
+        cf:f3:4a:f9:3e:49:1b:a4:5d:e2:54:05:b3:65:9e:28:6f:89:
+        13:e4:56:66
+-----BEGIN CERTIFICATE-----
+MIIDlzCCAn+gAwIBAgIIdGQlYV2R1cQwDQYJKoZIhvcNAQELBQAwFTETMBEGA1UE
+AxMKa3ViZXJuZXRlczAeFw0yNDAzMTAxNTMxMzVaFw0yNTAzMTAxNTMxMzZaMBkx
+FzAVBgNVBAMTDmt1YmUtYXBpc2VydmVyMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEAn80RXHh+Q4ABtSVCLiBOUNbnc1I66WPLO8bTsyKEgQSoubEcA4Hf
+8anOoh6u0xZKhSisEdzrYqFzHyQLdeo4Mo0r02w88LjRyR1zPWqbruMJ//Dk99N2
+1WmJ6HUe0GZe9Ea4e0SAXBPpBfVfnh+DZW8vAqYwtNC4YQP5oheRWF25KmrhYWf8
+VwVMjFhr6mNzJN37bSozC93MWNGwl3Ep6ikUqPNZw8KMlq3rqSWxHVb+So65CMb1
+KthOqYTUerb7ga8kL0nh4zrp4e8cQLjfTOIufcKi63ETf2+6SiJjMO1vQX6jqtm/
+UREsSQ3+CMH7sdrN0P5U+kXkJ8O7dw+4WQIDAQABo4HmMIHjMA4GA1UdDwEB/wQE
+AwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAMBgNVHRMBAf8EAjAAMB8GA1UdIwQY
+MBaAFLDgu5IBxI9CFQXXoKrpz19Fc1z0MIGMBgNVHREEgYQwgYGCD2s4Y2x1c3Rl
+cjAzMTBtMIIKa3ViZXJuZXRlc4ISa3ViZXJuZXRlcy5kZWZhdWx0ghZrdWJlcm5l
+dGVzLmRlZmF1bHQuc3ZjgiRrdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIu
+bG9jYWyHBApgAAGHBMCoCyCHBMCoC7IwDQYJKoZIhvcNAQELBQADggEBAI1gYsVL
+IT+pSLqZTacaumnNJQho9YJiHgw9F7mTi0fpMR9CgZcZ66Q0axoGJptQAb+sDUq/
+A+8Snsk7/5XMxldkG8+5LMR18dmmU7121+Gu5MCMtJbeKjmgj1SFZz37bBs620SM
+TY4E9KOhvtEJWDOtyO/+7Sct+qy+S6MdjG8xXe/UzlAKvt88qqCgsegJbTTtHQl5
+IficU6pMx6TwQUgL5aYQLpnbHznNTh34ET3y3kl0BHQclAsAcd9qB03HmJLOpQX1
+NbTz5FSIcEWmbDWfkFDIyLzb9nH7LRfqEHicp2d5uOwIERZQXM/zSvk+SRukXeJU
+BbNlnihviRPkVmY=
+-----END CERTIFICATE-----
+root@k8cluster0310m0:/etc/kubernetes/pki#
+
+root@k8cluster0310m0:/etc/kubernetes/pki#mkdir /home/topsadm/certificate/
+root@k8cluster0310m0:/etc/kubernetes/pki#cd /home/topsadm/certificate/
+root@k8cluster0310m0:/etc/kubernetes/pki#kubectl -n kube-system get configmap kubeadm-config \
+-o jsonpath='{.data.ClusterConfiguration}' > kubeadm.yaml
+
+root@k8cluster0310m0:~/certificate# cat kubeadm.yaml
+apiServer:
+  extraArgs:
+    authorization-mode: Node,RBAC
+  timeoutForControlPlane: 4m0s
+apiVersion: kubeadm.k8s.io/v1beta3
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controlPlaneEndpoint: 192.168.11.178:6443
+controllerManager: {}
+dns: {}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+imageRepository: registry.k8s.io
+kind: ClusterConfiguration
+kubernetesVersion: v1.27.3
+networking:
+  dnsDomain: cluster.local
+  serviceSubnet: 10.96.0.0/12
+scheduler: {}
+root@k8cluster0310m0:
+
+root@k8cluster0310m0:~/certificate# cp kubeadm.yaml kubeadm1.yaml
+
+Update the downlaoded the kubeadm.yaml file with all the floating and private IP of (HAproxy and all master nodes)
+
+root@k8cluster0310m0:~/certificate# cat kubeadm.yaml
+apiServer:
+  certSANs:
+  - "192.168.11.178"
+  - "192.168.11.32"
+  - "192.168.11.148"
+  - "192.168.11.139"
+  - "10.145.46.87"
+  - "10.145.46.244"
+  - "10.145.46.39"
+  - "10.145.47.33"
+  extraArgs:
+    authorization-mode: Node,RBAC
+  timeoutForControlPlane: 4m0s
+apiVersion: kubeadm.k8s.io/v1beta3
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controlPlaneEndpoint: 192.168.11.178:6443
+controllerManager: {}
+dns: {}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+imageRepository: registry.k8s.io
+kind: ClusterConfiguration
+kubernetesVersion: v1.27.3
+networking:
+  dnsDomain: cluster.local
+  serviceSubnet: 10.96.0.0/12
+scheduler: {}
+root@k8cluster0310m0:~/certificate#
+
+Move the existing apiserver.crt and apiserver.key file from /etc/kubernetes/pki/ to /home/topsadm/ on all three master nodes.
+
+root@k8cluster0310m0:~/certificate#mv /etc/kubernetes/pki/apiserver.crt /home/topsadm/
+root@k8cluster0310m0:~/certificate#mv /etc/kubernetes/pki/apiserver.key /home/topsadm/
+
+Now update the ceritficate with below comamnd.
+
+root@k8cluster0310m0:~/certificate# kubeadm init phase certs apiserver --config kubeadm.yaml
+[certs] Generating "apiserver" certificate and key
+[certs] apiserver serving cert is signed for DNS names [k8cluster0310m0 kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local] and IPs [10.96.0.1 192.168.11.32 192.168.11.178 192.168.11.148 192.168.11.139 10.145.46.87 10.145.46.244 10.145.46.39 10.145.47.33]
+root@k8cluster0310m0:~/certificate#
+
+Validate the updated apiserver.crt certificate with all the IP addresses.
+
+root@k8cluster0310m0:/etc/kubernetes/pki# openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 6427046229923909631 (0x5931747e81a0cfff)
+        Signature Algorithm: sha256WithRSAEncryption
+        Issuer: CN = kubernetes
+        Validity
+            Not Before: Mar 10 15:31:35 2024 GMT
+            Not After : Jun 14 07:32:49 2025 GMT
+        Subject: CN = kube-apiserver
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (2048 bit)
+                Modulus:
+                    00:b3:8f:6d:6c:90:6d:f2:68:b0:40:a4:83:73:41:
+                    95:0d:6a:77:84:85:71:c9:2c:9c:eb:6a:0c:29:59:
+                    d9:c7:ed:e9:c3:97:7d:00:59:9d:80:97:c5:06:4b:
+                    a0:94:0a:33:af:e7:e8:37:f7:31:52:b7:00:06:cf:
+                    0b:30:85:90:61:65:54:67:fc:ea:b6:7b:a1:6c:82:
+                    05:bf:f1:67:af:a5:52:0f:c1:c2:f9:21:cb:de:67:
+                    99:79:43:f5:b9:3a:04:c1:e0:00:81:d7:06:77:0e:
+                    69:db:62:7c:d9:35:8d:b5:48:17:53:d6:dc:30:4c:
+                    c3:16:3c:ec:fc:04:ba:98:e2:01:88:7b:eb:78:d8:
+                    71:0e:a0:7d:f2:44:f9:93:ab:44:c4:2a:e1:4f:b9:
+                    e0:47:00:90:11:11:aa:73:54:c1:ee:73:75:71:a5:
+                    20:ab:68:7f:83:92:4a:e0:91:54:7f:b7:5e:a2:aa:
+                    15:b4:08:02:5a:83:c6:7f:5b:47:60:d1:e7:05:e5:
+                    00:12:08:a2:ca:10:fa:ae:59:fe:07:6a:da:b8:0d:
+                    fa:bd:a1:a3:f6:7d:f1:08:41:5c:43:87:fe:33:e0:
+                    b1:9e:77:03:48:9c:a8:89:b0:47:ae:e7:67:1b:7e:
+                    fe:f5:5c:ea:f1:be:64:39:b6:fb:f1:e7:ce:b3:1a:
+                    a5:71
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Key Usage: critical
+                Digital Signature, Key Encipherment
+            X509v3 Extended Key Usage:
+                TLS Web Server Authentication
+            X509v3 Basic Constraints: critical
+                CA:FALSE
+            X509v3 Authority Key Identifier:
+                B0:E0:BB:92:01:C4:8F:42:15:05:D7:A0:AA:E9:CF:5F:45:73:5C:F4
+            X509v3 Subject Alternative Name:
+                DNS:k8cluster0310m0, DNS:kubernetes, DNS:kubernetes.default, DNS:kubernetes.default.svc, DNS:kubernetes.default.svc.cluster.local, IP Address:10.96.0.1, IP Address:192.168.11.32, IP Address:192.168.11.178, IP Address:192.168.11.148, IP Address:192.168.11.139, IP Address:10.145.46.87, IP Address:10.145.46.244, IP Address:10.145.46.39, IP Address:10.145.47.33
+    Signature Algorithm: sha256WithRSAEncryption
+    Signature Value:
+        30:99:f9:66:5f:72:4a:48:ba:02:35:df:82:fe:fd:e7:35:2b:
+        8e:76:fa:7e:08:7e:0e:57:3e:65:ac:a3:22:63:0b:1e:ae:a5:
+        f9:02:1c:8f:85:3b:56:56:89:81:dc:cc:a4:e9:52:51:7c:6e:
+        81:b5:e9:06:f7:b5:39:47:f3:20:56:4c:f2:5d:55:82:61:59:
+        43:1c:0d:78:2c:3a:e9:3e:88:a2:31:fc:1c:c2:5a:ce:81:46:
+        72:e6:25:db:45:1c:ae:70:61:1a:0f:4a:f0:49:ef:e6:24:30:
+        d2:7c:34:b9:4d:25:58:4e:9d:26:94:5c:a0:0c:9b:13:12:0f:
+        12:61:d9:c4:00:72:b4:ef:e7:13:6f:fe:5b:54:53:15:22:49:
+        cd:87:05:25:71:4e:94:f7:52:09:2e:48:33:cd:e0:53:8f:aa:
+        b4:28:6b:f8:f8:e4:16:4e:8f:ef:59:f6:cc:46:ce:96:fd:c4:
+        24:a8:05:d4:27:20:5d:b7:89:1c:db:49:c1:ce:83:86:d6:6c:
+        bb:bc:a9:1c:19:bf:2c:4d:6c:3b:30:87:dc:6d:ae:8b:b2:5d:
+        eb:7a:5c:f3:8b:cb:7c:2d:4f:99:70:fe:96:ae:1f:89:67:a6:
+        fa:aa:af:c7:b5:cc:df:17:83:57:2c:79:7a:65:1b:ea:d9:ae:
+        15:69:5a:47
+-----BEGIN CERTIFICATE-----
+MIIDvTCCAqWgAwIBAgIIWTF0foGgz/8wDQYJKoZIhvcNAQELBQAwFTETMBEGA1UE
+AxMKa3ViZXJuZXRlczAeFw0yNDAzMTAxNTMxMzVaFw0yNTA2MTQwNzMyNDlaMBkx
+FzAVBgNVBAMTDmt1YmUtYXBpc2VydmVyMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEAs49tbJBt8miwQKSDc0GVDWp3hIVxySyc62oMKVnZx+3pw5d9AFmd
+gJfFBkuglAozr+foN/cxUrcABs8LMIWQYWVUZ/zqtnuhbIIFv/Fnr6VSD8HC+SHL
+3meZeUP1uToEweAAgdcGdw5p22J82TWNtUgXU9bcMEzDFjzs/AS6mOIBiHvreNhx
+DqB98kT5k6tExCrhT7ngRwCQERGqc1TB7nN1caUgq2h/g5JK4JFUf7deoqoVtAgC
+WoPGf1tHYNHnBeUAEgiiyhD6rln+B2rauA36vaGj9n3xCEFcQ4f+M+CxnncDSJyo
+ibBHrudnG37+9Vzq8b5kObb78efOsxqlcQIDAQABo4IBCzCCAQcwDgYDVR0PAQH/
+BAQDAgWgMBMGA1UdJQQMMAoGCCsGAQUFBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0j
+BBgwFoAUsOC7kgHEj0IVBdegqunPX0VzXPQwgbAGA1UdEQSBqDCBpYIPazhjbHVz
+dGVyMDMxMG0wggprdWJlcm5ldGVzghJrdWJlcm5ldGVzLmRlZmF1bHSCFmt1YmVy
+bmV0ZXMuZGVmYXVsdC5zdmOCJGt1YmVybmV0ZXMuZGVmYXVsdC5zdmMuY2x1c3Rl
+ci5sb2NhbIcECmAAAYcEwKgLIIcEwKgLsocEwKgLlIcEwKgLi4cECpEuV4cECpEu
+9IcECpEuJ4cECpEvITANBgkqhkiG9w0BAQsFAAOCAQEAMJn5Zl9ySki6AjXfgv79
+5zUrjnb6fgh+Dlc+ZayjImMLHq6l+QIcj4U7VlaJgdzMpOlSUXxugbXpBve1OUfz
+IFZM8l1VgmFZQxwNeCw66T6IojH8HMJazoFGcuYl20UcrnBhGg9K8Env5iQw0nw0
+uU0lWE6dJpRcoAybExIPEmHZxABytO/nE2/+W1RTFSJJzYcFJXFOlPdSCS5IM83g
+U4+qtChr+PjkFk6P71n2zEbOlv3EJKgF1CcgXbeJHNtJwc6DhtZsu7ypHBm/LE1s
+OzCH3G2ui7Jd63pc84vLfC1PmXD+lq4fiWem+qqvx7XM3xeDVyx5emUb6tmuFWla
+Rw==
+-----END CERTIFICATE-----
+
+Now copy the apiserver.crt and apiserver.key file from 1st master to rest of the master nodes.
+
+root@k8cluster0310m0:~/certificate#cp /etc/kubernetes/pki/apiserver.crt master2:/etc/kubernetes/pki/
+root@k8cluster0310m0:~/certificate#cp /etc/kubernetes/pki/apiserver.key master2:/etc/kubernetes/pki/
+root@k8cluster0310m0:~/certificate#cp /etc/kubernetes/pki/apiserver.crt master3:/etc/kubernetes/pki/
+root@k8cluster0310m0:~/certificate#cp /etc/kubernetes/pki/apiserver.key master3:/etc/kubernetes/pki/
+
+Update the /etc/kubernetes/manifeast/kube-apiserver.yaml file to restart the the api server pod on 1st 
+master
+
+root@k8cluster0310m0:~/certificate#vi /etc/kubernetes/kube-apiserver.yaml
+
+It will restart the kube-apiserver pod 
+
+root@k8cluster0310m0:~/certificate#kubectl get po -n kube-system
+root@k8cluster0310m0:~/certificate#crictl pods ls
+root@k8cluster0310m0:~/certificate#crictl ps
+
+Update the /etc/kubernetes/manifeast/kube-apiserver.yaml file to restart the the api server pod on 2nd master
+
+root@k8cluster0310m1:~/certificate#vi /etc/kubernetes/kube-apiserver.yaml
+
+It will restart the kube-apiserver pod 
+
+root@k8cluster0310m1:~/certificate#kubectl get po -n kube-system
+root@k8cluster0310m1:~/certificate#crictl pods ls
+root@k8cluster0310m1:~/certificate#crictl ps
+
+Update the /etc/kubernetes/manifeast/kube-apiserver.yaml file to restart the the api server pod on 3rd master
+
+root@k8cluster0310m2:~/certificate#vi /etc/kubernetes/kube-apiserver.yaml
+
+It will restart the kube-apiserver pod 
+
+root@k8cluster0310m2:~/certificate#kubectl get po -n kube-system
+root@k8cluster0310m2:~/certificate#crictl pods ls
+root@k8cluster0310m2:~/certificate#crictl ps
+
+Updated the updated IPS details in kubeadm confirm map for future cluster upgrade.
+
+kubeadm init phase upload-config kubeadm --config kubeadm.yaml
+
+root@k8cluster0310m0:~/certificate# kubeadm init phase upload-config kubeadm --config kubeadm.yaml
+[upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
+root@k8cluster0310m0:~/certificate#
+
+kubectl -n kube-system get configmap kubeadm-config -o yaml
+================================================================
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+
+
+Below are production-ready steps to regenerate the kube-apiserver serving certificate so it’s valid when clients connect using the public IP (example `103.154.75.23:6443`) — i.e., it fixes the exact error: “cert is valid for private IPs, not public IP”.
+
+These steps assume:
+
+* single control-plane (`10.48.243.135`)
+* kubeadm-managed cluster (you have `kubeadm-config` ConfigMap)
+* clients will access directly via public IP (no domain)
+
+---
+
+ 0) Before you start (safety)
+
+Run on the master:
+
+
+sudo -i
+mkdir -p /root/cert-backup-$(date +%F)
+cp -a /etc/kubernetes/pki/apiserver.{crt,key} /root/cert-backup-$(date +%F)/
+cp -a /etc/kubernetes/admin.conf /root/cert-backup-$(date +%F)/
+
+
+---
+
+ 1) Confirm current SANs (you’ll see public IP missing)
+
+
+openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -text | grep -A1 "Subject Alternative Name"
+
+
+---
+
+ 2) Remove/move existing apiserver cert/key (kubeadm won’t overwrite)
+
+> kubeadm will skip generation if files already exist. ([man.archlinux.org][1])
+
+
+mv /etc/kubernetes/pki/apiserver.crt /root/cert-backup-$(date +%F)/apiserver.crt.old
+mv /etc/kubernetes/pki/apiserver.key /root/cert-backup-$(date +%F)/apiserver.key.old
+
+
+---
+
+ 3) Generate new apiserver cert with public IP in SAN
+
+Use the kubeadm phase command and add the public IP as an extra SAN:
+
+
+kubeadm init phase certs apiserver --apiserver-cert-extra-sans 103.154.75.23
+
+
+This flag explicitly adds SAN entries and avoids config parsing issues. ([mankier.com][2])
+
+> If you also want it to work with a domain later, you can add it too:
+> `--apiserver-cert-extra-sans k8s-api.akrys.ai`
+> (Not required for “IP-only” access.)
+
+---
+
+ 4) Restart kube-apiserver (static pod) to pick up the new cert
+
+kube-apiserver is a static pod, so touching its manifest forces a restart:
+
+
+touch /etc/kubernetes/manifests/kube-apiserver.yaml
+
+
+Then watch it come back:
+
+
+crictl ps | grep kube-apiserver || true
+kubectl -n kube-system get pods | grep kube-apiserver || true
+
+
+(Alternative is stopping/removing the apiserver pod via `crictl`; touching the manifest is the cleanest.)
+
+---
+
+ 5) Verify new SAN contains the public IP
+
+
+openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -text | grep -A1 "Subject Alternative Name"
+
+
+You should now see:
+
+* `IP Address:103.154.75.23`
+* plus your existing internal SANs
+
+---
+
+ 6) Client-side kubeconfig change (required)
+
+Clients must point to the public IP:
+
+yaml
+server: https://103.154.75.23:6443
+
+
+They should keep the existing `certificate-authority-data` (cluster CA) — because the apiserver cert is still signed by the Kubernetes CA.
+
+---
+
+ 7) (Recommended) Store this SAN config for future upgrades
+
+Kubernetes recommends keeping kubeadm config updated for future operations. ([Kubernetes][3])
+
+Create a kubeadm config file with SANs and upload it:
+
+
+kubectl -n kube-system get configmap kubeadm-config -o jsonpath='{.data.ClusterConfiguration}' > /root/kubeadm-cluster.yaml
+
+
+Edit `/root/kubeadm-cluster.yaml` and add:
+
+yaml
+apiServer:
+  certSANs:
+  - "103.154.75.23"
+
+
+Then upload:
+
+
+kubeadm init phase upload-config kubeadm --config /root/kubeadm-cluster.yaml
+
+
+> Note: If your kubeadm build complains about `certSANs` in v1beta4, keep the file as internal documentation and rely on the `--apiserver-cert-extra-sans` approach for regeneration.
+
+---
+
+ 8) Remove HAProxy / load balancer path (since IP-only direct access)
+
+Once you confirm `kubectl` works via public IP:
+
+* Remove NAT mapping to HAProxy port (9443) and point public `6443 → private 6443`
+* Stop/disable HAProxy on master if not needed:
+
+
+systemctl stop haproxy
+systemctl disable haproxy
+
+
+---
+
+# Quick validation test from a client machine
+
+
+kubectl --server=https://103.154.75.23:6443 get nodes
+
+
+---
+
+If you share your public IP (confirm it’s `103.154.75.23`) and whether 6443 is the only public port, I can tailor the exact SAN list (minimal + safe) and the exact NAT swap plan to avoid any downtime surprises.
+
+[1]: https://man.archlinux.org/man/extra/kubeadm/kubeadm-init-phase-certs-apiserver.1.en?utm_source=chatgpt.com "kubeadm-init-phase-certs-apiserver (1) — Arch manual pages"
+[2]: https://www.mankier.com/1/kubeadm-init-phase-certs-apiserver?utm_source=chatgpt.com "kubeadm-init-phase-certs-apiserver: Generate the certificate for ..."
+[3]: https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/?utm_source=chatgpt.com "Certificate Management with kubeadm - Kubernetes"
