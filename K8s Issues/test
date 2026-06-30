@@ -1,0 +1,129 @@
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# add repos
+helm repo add metallb https://metallb.github.io/metallb
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+
+
+kubectl -n kube-system get configmap kube-proxy -o yaml | \
+  sed 's/strictARP: false/strictARP: true/' | \
+  kubectl apply -f -
+
+kubectl create namespace metallb-system
+
+
+helm install metallb metallb/metallb -n metallb-system
+kubectl -n metallb-system get pods
+
+
+
+cat <<'YAML' | kubectl apply -f -
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 172.16.21.85-172.16.21.89
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: first-advert
+  namespace: metallb-system
+YAML
+
+kubectl -n metallb-system get ipaddresspools,l2advertisements
+
+
+
+kubectl create namespace ingress-nginx
+
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --set controller.service.type=LoadBalancer \
+  --set controller.service.externalTrafficPolicy=Local
+
+
+kubectl label node worker01 worker02 worker03 node-role.kubernetes.io/worker=
+
+sudo kubeadm init phase mark-control-plane --node-name zee8608masterapi03
+
+
+
+---------------
+metrics-server
+
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+helm repo update
+
+helm upgrade --install metrics-server metrics-server/metrics-server -n kube-system \
+  --set args="{--kubelet-insecure-tls,--kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP}"
+
+kubectl label node worker1 node.longhorn.io/create-default-disk=true --overwrite
+kubectl label node worker2 node.longhorn.io/create-default-disk=true --overwrite
+kubectl label node worker3 node.longhorn.io/create-default-disk=true --overwrite
+
+
+
+
+
+sudo kubeadm init phase upload-certs --upload-certs
+sudo kubeadm token create --print-join-command 
+sudo kubeadm join ... --control-plane --certificate-key <key-from-upload-certs>
+
+---
+
+#!/bin/bash
+
+set -e
+
+CONTROL_PLANE_ENDPOINT="10.48.216.132"
+
+echo "[INFO] Initializing Kubernetes control plane..."
+kubeadm init \
+    --control-plane-endpoint="${CONTROL_PLANE_ENDPOINT}:6443" \
+    --upload-certs \
+    --pod-network-cidr=10.244.0.0/16 | tee /root/kubeadm-init.out
+	
+----
+
+cat /etc/haproxy/haproxy.cfg
+global
+    log /dev/log local0
+    maxconn 200
+
+defaults
+    log         global
+    option      tcplog
+    timeout connect 5000ms
+    timeout client  50000ms
+    timeout server  50000ms
+
+frontend kubernetes-frontend
+    bind *:6443
+    mode tcp
+    default_backend kubernetes-backend
+
+backend kubernetes-backend
+    mode tcp
+    balance roundrobin
+    server master1 10.48.222.2:6443 check fall 3 rise 2
+    server master2 10.48.222.3:6443 check fall 3 rise 2
+    server master3 10.48.222.4:6443 check fall 3 rise 2
+	
+	
+helm upgrade --install cilium oci://quay.io/cilium/charts/cilium \
+  --namespace kube-system \
+  --version 1.19.1 \
+  --set ipam.mode=kubernetes \
+  --set routingMode=tunnel \
+  --set tunnelProtocol=vxlan
+  
+
+  
+  
+  
