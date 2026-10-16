@@ -1,0 +1,616 @@
+# Nipun ESDS - ARC Runner, Rootless BuildKit and GitOps CI/CD Setup Guide
+
+**Purpose:** Internal reference for the setup documented for `VOPA-Tech/nipun-core-api` on the ESDS Kamaji Kubernetes cluster.  
+**Scope:** GitHub environment, Actions Runner Controller (ARC), rootless BuildKit, Swaraj image registry and cache, and the DEV GitOps manifest update.
+
+> **Reference note:** The original notes used `esds-dev` as both a branch and an environment. The workflow actually uses GitHub environment **`nipun-esds-dev`**, while the application source branch and the `DEPLOY_ENV` variable are **`esds-dev`**. This naming distinction is clarified below. The commands and full workflow come from the supplied notes; verify credentials, cluster versions, security policy and branch protections before reuse.
+
+## 1. Architecture and repository details
+
+```text
+Application source: VOPA-Tech/nipun-core-api
+Source branch:      esds-dev
+GitHub environment: nipun-esds-dev
+ARC runner label:   esds-arc-runner
+ARC namespaces:    arc-systems (controller), arc-runners (scale set)
+Application image:  mdc-ecr.swarajcloud.com/7144-nipun/nipun-core-api:<tag>
+BuildKit cache:     mdc-ecr.swarajcloud.com/7144-nipun/nipun-core-api-dev-buildcache:cache
+GitOps repository:  VOPA-Tech/nipun-esds-gitops
+GitOps branch:      nipun-core-api
+GitOps manifest:    dev/deployment.yaml
+Target namespace:   nipun-dev
+```
+
+**Flow:** Developer pushes to `esds-dev` -> GitHub Actions schedules an ARC runner -> rootless BuildKit builds the image -> Swaraj Registry stores the image and optional cache -> CI updates the DEV deployment image in the separate GitOps repo -> Argo CD detects the change when configured and syncs the cluster when approved/enabled.
+
+## 2. Create and protect the GitHub environment
+
+1. Open `VOPA-Tech/nipun-core-api` on GitHub.
+2. Go to **Settings > Environments > New environment**.
+3. Enter **`nipun-esds-dev`** and configure the environment.
+4. Under **Deployment branches and tags**, select **Selected branches and tags**.
+5. Add the branch rule **`esds-dev`**. This restricts access to this environment from other branches.
+
+> Do not confuse the environment name (`nipun-esds-dev`) with the application source branch (`esds-dev`).
+
+## 3. Install GitHub Actions Runner Controller (ARC)
+
+Run the following on `nipun-bastion` with access to the tenant Kubernetes cluster.
+
+### 3.1 Install the ARC controller
+
+```bash
+helm install arc \
+  --namespace arc-systems \
+  --create-namespace \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+
+kubectl create namespace arc-runners
+```
+
+### 3.2 Create the GitHub authentication Secret
+
+Use a GitHub PAT with the repository authorization required to register a self-hosted runner. Avoid printing the token or entering it into a `kubectl debug` session that records input.
+
+```bash
+set +x
+read -r -s -p "GitHub PAT: " GITHUB_PAT
+echo
+
+printf '%s' "$GITHUB_PAT" | \
+  kubectl create secret generic esds-arc-auth \
+    -n arc-runners \
+    --from-file=github_token=/dev/stdin \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+unset GITHUB_PAT
+```
+
+The original notes used `--from-literal=github_token="$GITHUB_PAT"`, which works but exposes the credential in the command-line arguments. The stdin method above reduces that exposure.
+
+### 3.3 Install the ARC runner scale set
+
+```bash
+helm install esds-arc-runner \
+  --namespace arc-runners \
+  --set-string githubConfigUrl="https://github.com/VOPA-Tech/nipun-core-api" \
+  --set-string githubConfigSecret="esds-arc-auth" \
+  --set minRunners=0 \
+  --set maxRunners=1 \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+```
+
+### 3.4 Verify registration
+
+```bash
+kubectl get pods -n arc-systems
+kubectl get autoscalingrunnersets -A
+kubectl get autoscalinglisteners -A
+kubectl get pods -n arc-runners
+```
+
+The scale set should become **Running**, and the listener should appear. With `minRunners=0`, an actual runner pod is created when a job is scheduled. Confirm the `esds-arc-runner` scale set is **Online** in the GitHub repository's **Settings > Actions > Runners**.
+
+Optional authenticated API test from a trusted bastion with CA-validated `curl` (a successful runner-registration request returns HTTP **201**):
+
+```bash
+set +x
+read -r -s -p "GitHub PAT: " GITHUB_PAT
+echo
+curl -sS -o /dev/null -w 'HTTP status: %{http_code}\n' \
+  -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  'https://api.github.com/repos/VOPA-Tech/nipun-core-api/actions/runners/registration-token'
+unset GITHUB_PAT
+```
+
+> A `200 OK` from `/user` confirms authentication but does not prove runner-registration authorization. Do not rely on BusyBox `wget` clients that cannot validate TLS certificates.
+
+## 4. Configure GitHub environment secrets and variables
+
+Open `Settings > Environments > nipun-esds-dev` in the application source repository.
+
+### 4.1 Environment secrets
+
+| Secret | Purpose |
+|---|---|
+| `SWARAJ_REGISTRY_USERNAME` | Registry push username / robot account name |
+| `SWARAJ_REGISTRY_PASSWORD` | Corresponding registry password / token |
+| `GITOPS_TOKEN` | Write credential for the separate private GitOps repository |
+
+The GitOps token owner needs write access to `VOPA-Tech/nipun-esds-gitops`. A fine-grained PAT requires **Contents: Read and write** for that repository, and the branch must permit the intended push; a GitHub App is another option.
+
+### 4.2 Environment variables
+
+| Variable | Value |
+|---|---|
+| `IMAGE_REGISTRY` | `mdc-ecr.swarajcloud.com` |
+| `IMAGE_REPOSITORY` | `7144-nipun/nipun-core-api` |
+| `CACHE_REPOSITORY` | `7144-nipun/nipun-core-api-dev-buildcache` |
+| `DEPLOY_ENV` | `esds-dev` |
+| `ENABLE_IMAGE_PUSH` | `true` when publishing is approved |
+| `ENABLE_REGISTRY_CACHE` | `true` to attempt separate cache export |
+| `ENABLE_CACHE_IMPORT` | `false` until a successful initial cache export; then `true` |
+| `ENABLE_GITOPS_UPDATE` | `false` until Argo CD's initial DEV adoption is validated; then `true` |
+| `GITOPS_BRANCH` | `nipun-core-api` |
+| `GITOPS_DEPLOYMENT_FILE` | `dev/deployment.yaml` |
+
+Additional previously used variables include `APP_NAME=nipun-core-api` and `K8S_NAMESPACE=nipun-dev`; the included workflow does not currently consume these two variables.
+
+## 5. Configure rootless BuildKit in the ARC runner pod
+
+Rootless BuildKit avoids the need for a worker-node Docker daemon or Docker socket. In these notes it runs as a sidecar container in each ephemeral ARC runner pod, alongside `buildctl` in the runner container.
+
+Prepare the values file:
+
+```bash
+mkdir -p /root/arc-buildkit
+cd /root/arc-buildkit
+vi arc-buildkit-values.yaml
+```
+
+### 5.1 `arc-buildkit-values.yaml` (original configuration)
+
+```yaml
+# Custom ARC runner pod configuration
+# Existing GitHub settings are preserved by helm --reuse-values.
+# Do not enable containerMode: dind or kubernetes.
+
+template:
+  spec:
+    securityContext:
+      fsGroup: 1000
+
+    initContainers:
+      - name: install-buildctl
+        image: moby/buildkit:rootless
+        imagePullPolicy: IfNotPresent
+        command:
+          - /bin/sh
+          - -ec
+        args:
+          - |
+            cp /usr/bin/buildctl /tools/buildctl
+            chmod 0755 /tools/buildctl
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+        volumeMounts:
+          - name: buildkit-tools
+            mountPath: /tools
+
+    containers:
+      # Existing GitHub Actions Runner
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        imagePullPolicy: IfNotPresent
+        command:
+          - /home/runner/run.sh
+        env:
+          - name: BUILDKIT_HOST
+            value: tcp://127.0.0.1:1234
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
+        volumeMounts:
+          - name: buildkit-tools
+            mountPath: /opt/buildkit-tools
+            readOnly: true
+
+      # Rootless BuildKit Builder
+      - name: buildkitd
+        image: moby/buildkit:rootless
+        imagePullPolicy: IfNotPresent
+        args:
+          - --addr
+          - tcp://0.0.0.0:1234
+          - --oci-worker-no-process-sandbox
+        securityContext:
+          privileged: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          seccompProfile:
+            type: Unconfined
+          appArmorProfile:
+            type: Unconfined
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "4"
+            memory: 6Gi
+        readinessProbe:
+          tcpSocket:
+            port: 1234
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 12
+        volumeMounts:
+          - name: buildkit-data
+            mountPath: /home/user/.local/share/buildkit
+
+    volumes:
+      - name: buildkit-tools
+        emptyDir: {}
+
+      - name: buildkit-data
+        emptyDir:
+          sizeLimit: 10Gi
+```
+
+**Security note:** `privileged: false` does not imply fully restricted security. The documented sidecar uses unconfined seccomp/AppArmor and `--oci-worker-no-process-sandbox`. Obtain cluster security approval, restrict access to its internal port, and pin image versions/digests for production use. This reference records the working approach, not a general-purpose hardened security baseline.
+
+### 5.2 Upgrade the existing ARC release
+
+```bash
+helm upgrade esds-arc-runner \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+  --version 0.15.0 \
+  --namespace arc-runners \
+  --reuse-values \
+  -f arc-buildkit-values.yaml \
+  --wait \
+  --timeout 5m
+```
+
+Verify the upgraded configuration:
+
+```bash
+helm get values esds-arc-runner -n arc-runners
+kubectl get autoscalingrunnersets -A
+kubectl get autoscalinglisteners -A
+kubectl get pods -n arc-runners -w
+```
+
+Rootless BuildKit uses a temporary `emptyDir` cache in this setup. An ephemeral runner pod does **not** retain its local cache after deletion. The separate Swaraj registry cache allows reuse across new pods, without a NetApp PVC.
+
+## 6. Configure the CI/CD GitHub Actions workflow
+
+**Source repository:** `VOPA-Tech/nipun-core-api`  
+**Source branch:** `esds-dev`  
+**Workflow path:** `.github/workflows/nipun-esds-buildkit.yml`  
+**GitHub environment used by the job:** `nipun-esds-dev`
+
+This is the **full workflow from your original notes**, retained as provided. It builds the application image first, independently attempts cache export (so a cache failure does not cancel a successful image push), and optionally updates the DEV GitOps manifest.
+
+### 6.1 Complete `nipun-esds-buildkit.yml`
+
+```yaml
+name: Nipun ESDS Rootless BuildKit CI/CD
+
+on:
+  push:
+    branches:
+      - esds-dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nipun-esds-dev-ci-cd
+  cancel-in-progress: false
+
+jobs:
+  build-and-update-gitops:
+    name: Build, Push, Cache, and Update DEV GitOps
+    if: github.repository == 'VOPA-Tech/nipun-core-api'
+    runs-on: esds-arc-runner
+    environment: nipun-esds-dev
+    timeout-minutes: 60
+
+    env:
+      DEPLOY_ENV: ${{ vars.DEPLOY_ENV }}
+      IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY }}
+      IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY }}
+      CACHE_REPOSITORY: ${{ vars.CACHE_REPOSITORY }}
+      ENABLE_IMAGE_PUSH: ${{ vars.ENABLE_IMAGE_PUSH }}
+      ENABLE_REGISTRY_CACHE: ${{ vars.ENABLE_REGISTRY_CACHE }}
+      ENABLE_CACHE_IMPORT: ${{ vars.ENABLE_CACHE_IMPORT }}
+      ENABLE_GITOPS_UPDATE: ${{ vars.ENABLE_GITOPS_UPDATE }}
+      GITOPS_BRANCH: ${{ vars.GITOPS_BRANCH }}
+      GITOPS_DEPLOYMENT_FILE: ${{ vars.GITOPS_DEPLOYMENT_FILE }}
+      BUILDKIT_HOST: tcp://127.0.0.1:1234
+
+    steps:
+      - name: Validate branch and settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "esds-dev" || { echo "::error::Unexpected branch"; exit 1; }
+          test "$DEPLOY_ENV" = "esds-dev" || { echo "::error::Unexpected deployment environment"; exit 1; }
+          test "$IMAGE_REGISTRY" = "mdc-ecr.swarajcloud.com" || { echo "::error::Unexpected registry"; exit 1; }
+          test "$IMAGE_REPOSITORY" = "7144-nipun/nipun-core-api" || { echo "::error::Unexpected image repository"; exit 1; }
+
+          for flag in ENABLE_IMAGE_PUSH ENABLE_REGISTRY_CACHE ENABLE_CACHE_IMPORT ENABLE_GITOPS_UPDATE; do
+            value="${!flag:-}"
+            if [[ "$value" != "true" && "$value" != "false" ]]; then
+              echo "::error::$flag must be explicitly true or false"
+              exit 1
+            fi
+          done
+
+          if [[ "$ENABLE_REGISTRY_CACHE" == "true" || "$ENABLE_CACHE_IMPORT" == "true" ]]; then
+            test "$CACHE_REPOSITORY" = "7144-nipun/nipun-core-api-dev-buildcache" || {
+              echo "::error::Unexpected cache repository"; exit 1;
+            }
+            test "$ENABLE_IMAGE_PUSH" = "true" || {
+              echo "::error::Registry cache requires ENABLE_IMAGE_PUSH=true"; exit 1;
+            }
+          fi
+
+          if [[ "$ENABLE_CACHE_IMPORT" == "true" && "$ENABLE_REGISTRY_CACHE" != "true" ]]; then
+            echo "::error::ENABLE_CACHE_IMPORT requires ENABLE_REGISTRY_CACHE=true"
+            exit 1
+          fi
+
+          if [[ "$ENABLE_GITOPS_UPDATE" == "true" ]]; then
+            test "$ENABLE_IMAGE_PUSH" = "true" || {
+              echo "::error::GitOps updates require successful registry publishing"; exit 1;
+            }
+            test "$GITOPS_BRANCH" = "nipun-core-api" || { echo "::error::Unexpected GitOps branch"; exit 1; }
+            test "$GITOPS_DEPLOYMENT_FILE" = "dev/deployment.yaml" || {
+              echo "::error::Unexpected GitOps file"; exit 1;
+            }
+          fi
+          echo "Validated CI/CD settings for $DEPLOY_ENV"
+
+      - name: Checkout application source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Verify application source and rootless BuildKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Dockerfile
+          test -f requirements.txt
+          test -d src
+          /opt/buildkit-tools/buildctl --version
+
+          for i in $(seq 1 30); do
+            if /opt/buildkit-tools/buildctl --addr "$BUILDKIT_HOST" debug workers >/dev/null 2>&1; then
+              echo "Rootless BuildKit is ready"
+              exit 0
+            fi
+            echo "Waiting for BuildKit ($i/30)"
+            sleep 2
+          done
+          echo "::error::BuildKit daemon did not become ready"
+          exit 1
+
+      - name: Generate application image reference
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="esds-dev-${GITHUB_SHA::12}"
+          image="${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${tag}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Application image: $image"
+
+          if [[ "$ENABLE_REGISTRY_CACHE" == "true" ]]; then
+            echo "Cache repository: ${IMAGE_REGISTRY}/${CACHE_REPOSITORY}:cache"
+          fi
+
+      - name: Build and publish image, then separately export cache
+        id: publish
+        shell: bash
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          REGISTRY_USERNAME: ${{ secrets.SWARAJ_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.SWARAJ_REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/buildkit-auth.XXXXXX")"
+          export DOCKER_CONFIG
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+
+          if [[ "$ENABLE_IMAGE_PUSH" == "true" ]]; then
+            test -n "${REGISTRY_USERNAME:-}" || { echo "::error::Registry username is missing"; exit 1; }
+            test -n "${REGISTRY_PASSWORD:-}" || { echo "::error::Registry password is missing"; exit 1; }
+            auth="$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 -w0)"
+            printf '{"auths":{"%s":{"auth":"%s"}}}\n' \
+              "$IMAGE_REGISTRY" "$auth" > "$DOCKER_CONFIG/config.json"
+            unset auth REGISTRY_USERNAME REGISTRY_PASSWORD
+          fi
+
+          build_args=(
+            --addr "$BUILDKIT_HOST"
+            build
+            --progress=plain
+            --frontend dockerfile.v0
+            --local context=.
+            --local dockerfile=.
+            --opt filename=Dockerfile
+          )
+
+          cache_ref="${IMAGE_REGISTRY}/${CACHE_REPOSITORY}:cache"
+          if [[ "$ENABLE_CACHE_IMPORT" == "true" ]]; then
+            build_args+=(--import-cache "type=registry,ref=${cache_ref}")
+          fi
+
+          echo "=== STEP 1: Build and publish application image ==="
+          /opt/buildkit-tools/buildctl "${build_args[@]}" \
+            --output "type=image,name=${IMAGE},push=${ENABLE_IMAGE_PUSH}"
+
+          if [[ "$ENABLE_IMAGE_PUSH" == "true" ]]; then
+            echo "IMAGE_PUSH_SUCCESS: $IMAGE"
+          else
+            echo "IMAGE_BUILD_SUCCESS (push disabled): $IMAGE"
+          fi
+
+          echo "image_published=$ENABLE_IMAGE_PUSH" >> "$GITHUB_OUTPUT"
+
+          # Cache is an optimization. Its failure must never cancel a successful image push.
+          cache_exported=false
+          if [[ "$ENABLE_REGISTRY_CACHE" == "true" ]]; then
+            echo "=== STEP 2: Export DEV cache separately ==="
+            if /opt/buildkit-tools/buildctl "${build_args[@]}" \
+              --export-cache "type=registry,ref=${cache_ref},mode=min,image-manifest=true,oci-mediatypes=true,compression=gzip"; then
+              echo "CACHE_EXPORT_SUCCESS: $cache_ref"
+              cache_exported=true
+            else
+              echo "::warning::Registry cache export failed; application image was already published."
+              echo "::warning::Do not enable ENABLE_CACHE_IMPORT until the cache artifact is verified."
+            fi
+          fi
+          echo "cache_exported=$cache_exported" >> "$GITHUB_OUTPUT"
+
+      # GitOps updates are independent of cache export success.
+      # Keep ENABLE_GITOPS_UPDATE=false until Argo CD has safely adopted nipun-dev.
+      - name: Check GitOps update prerequisites
+        if: ${{ vars.ENABLE_IMAGE_PUSH == 'true' && vars.ENABLE_GITOPS_UPDATE == 'true' }}
+        shell: bash
+        env:
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${GITOPS_TOKEN:-}" || { echo "::error::GITOPS_TOKEN is missing"; exit 1; }
+          echo "GitOps credentials are configured"
+
+      - name: Checkout private GitOps repository
+        if: ${{ vars.ENABLE_IMAGE_PUSH == 'true' && vars.ENABLE_GITOPS_UPDATE == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          repository: VOPA-Tech/nipun-esds-gitops
+          ref: ${{ vars.GITOPS_BRANCH }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Update DEV deployment image and commit
+        if: ${{ vars.ENABLE_IMAGE_PUSH == 'true' && vars.ENABLE_GITOPS_UPDATE == 'true' }}
+        shell: bash
+        working-directory: gitops
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          command -v python3 >/dev/null || { echo "::error::Python 3 is required on the ARC runner"; exit 1; }
+
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(os.environ['GITOPS_DEPLOYMENT_FILE'])
+          if not path.is_file():
+              sys.exit(f'Missing GitOps manifest: {path}')
+
+          contents = path.read_text()
+          repository = os.environ['IMAGE_REGISTRY'] + '/' + os.environ['IMAGE_REPOSITORY']
+          new_image = os.environ['IMAGE']
+
+          pattern = re.compile(
+              r'(?m)^([ \t]*image:[ \t]*)(["\']?)'
+              + re.escape(repository)
+              + r'(?::[^\s"\'\#]+|@sha256:[0-9a-fA-F]{64})'
+              + r'\2([ \t]*(?:\#.*)?)$'
+          )
+          count = len(list(pattern.finditer(contents)))
+          if count != 1:
+              sys.exit(f'Expected exactly one {repository} image line in {path}, found {count}')
+
+          updated = pattern.sub(
+              lambda match: match.group(1) + match.group(2) + new_image + match.group(2) + match.group(3),
+              contents,
+              count=1,
+          )
+          path.write_text(updated)
+          print(f'Updated image reference in {path} to {new_image}')
+          PY
+
+          if git diff --quiet -- "$GITOPS_DEPLOYMENT_FILE"; then
+            echo "GitOps manifest already references $IMAGE"
+            exit 0
+          fi
+
+          git diff -- "$GITOPS_DEPLOYMENT_FILE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$GITOPS_DEPLOYMENT_FILE"
+          git commit -m "ci(dev): deploy nipun-core-api ${IMAGE_TAG}"
+          git push origin "HEAD:${GITOPS_BRANCH}"
+          echo "GITOPS_UPDATE_SUCCESS: ${GITOPS_BRANCH}/${GITOPS_DEPLOYMENT_FILE}"
+
+      - name: Pipeline summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          IMAGE_PUBLISHED: ${{ steps.publish.outputs.image_published }}
+          CACHE_EXPORTED: ${{ steps.publish.outputs.cache_exported }}
+        run: |
+          echo '## Nipun ESDS CI/CD' >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image published: $IMAGE_PUBLISHED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Registry cache exported: $CACHE_EXPORTED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitOps update enabled: $ENABLE_GITOPS_UPDATE" >> "$GITHUB_STEP_SUMMARY"
+```
+
+## 7. Validate the pipeline in stages
+
+**Stage A - Checkout and BuildKit:** Confirm the runner is online, application source checks out and the BuildKit daemon responds.  
+**Stage B - Application image:** Set `ENABLE_IMAGE_PUSH=true`; verify the commit-tagged artifact appears under `7144-nipun/nipun-core-api`.  
+**Stage C - Cache export:** Set `ENABLE_REGISTRY_CACHE=true`, `ENABLE_CACHE_IMPORT=false`; confirm `CACHE_EXPORT_SUCCESS` and a `cache` tag under `7144-nipun/nipun-core-api-dev-buildcache`.  
+**Stage D - Cache reuse:** Change `ENABLE_CACHE_IMPORT=true`; inspect the next job for cache import and `CACHED` layers.  
+**Stage E - GitOps commit:** Only after Argo CD safe adoption, set `ENABLE_GITOPS_UPDATE=true` and provide `GITOPS_TOKEN` with write access. Confirm the job commits the new image to `nipun-core-api` branch / `dev/deployment.yaml`.
+
+The GitOps update performs a **direct push** to `nipun-core-api`. If branch rules prohibit direct pushes, use an approved pull-request workflow instead. A successful image push/cache export **does not automatically mean the Kubernetes Deployment was updated**.
+
+## 8. Verify Argo CD deployment separately
+
+Argo CD already runs in namespace `argocd`, but installing ARC/BuildKit and updating the GitOps repository are not the same as configuring Argo CD synchronization. The private GitOps repository must be connected to Argo CD, and its Application must track the **`nipun-core-api`** branch and **`dev`** path.
+
+```bash
+kubectl get pods -n argocd
+kubectl get applications.argoproj.io -A
+kubectl get deployment nipun-core-api -n nipun-dev -o wide
+kubectl get deployment nipun-core-api -n nipun-dev \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+```
+
+**Initial adoption safeguard:** Your live `nipun-core-api` Deployment in `nipun-dev` uses `Recreate`, has existing ConfigMap/Secret references and a private registry pull secret. Compare the GitOps Deployment, Service, Ingress and ConfigMap with the live cluster before an initial sync. Do not enable prune or auto-sync before reviewing the diff; changes to `Recreate`-managed pods may cause downtime.
+
+## 9. Troubleshooting notes recorded during implementation
+
+| Symptom | Likely cause / next action |
+|---|---|
+| ARC scale set Pending, missing listener | Check GitHub PAT secret, token validity, registration permissions and controller logs |
+| GitHub API `401` | Credentials invalid, expired or incorrectly stored |
+| GitHub runner-registration API `403` | Token lacks required repository administration access or organization approval |
+| `buildctl: flag provided but not defined: -progress` | `--progress=plain` must follow the `build` subcommand |
+| Registry image push `401` | Check robot credentials, project permissions and exact registry path `7144-nipun/nipun-core-api` |
+| `blob upload unknown to registry` on cache export | Registry cache/upload-session issue; keep cache export independent from image publishing |
+| GitOps push `403 Write access to repository not granted` | The `GITOPS_TOKEN` must have Contents Read and write on `VOPA-Tech/nipun-esds-gitops`; verify branch rules |
+| Deployment image unchanged although CI succeeded | Check `ENABLE_GITOPS_UPDATE`, GitOps push result, target branch/path, and Argo CD sync status |
+
+## 10. Operational checklist
+
+- [ ] GitHub environment is named `nipun-esds-dev`; deployment branch rule is `esds-dev`
+- [ ] ARC controller and runner scale set are Running; runner shown Online in GitHub
+- [ ] GitHub token and registry secrets are stored securely, not committed to source
+- [ ] Rootless BuildKit sidecar starts and `buildctl` can connect
+- [ ] Application image is published to the correct Swaraj registry project
+- [ ] Separate DEV cache export is verified before enabling cache import
+- [ ] GitOps token has repo write authorization and complies with branch rules
+- [ ] GitOps manifest change is committed to `nipun-core-api` branch
+- [ ] Argo CD repository credentials, target branch/path and initial sync are validated
+- [ ] UAT/PROD promotions and approvals are managed separately from DEV
+
+**End of reference.**
